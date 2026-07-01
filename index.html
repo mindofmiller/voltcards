@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volt Cards — Grading ROI Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f6f7fb; --panel:#ffffff; --ink:#1a2233; --muted:#6b7488; --line:#e4e7ef;
+  --accent:#3b5bdb; --good:#2f9e57; --goodbg:#e7f6ec; --warn:#c98a00; --bad:#d1435b;
+  --op:#e8590c; --pk:#3b5bdb; --mg:#7048e8; --chip:#eef1f8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{padding:16px;max-width:1400px;margin:0 auto}
+h1{font-size:18px;margin:0 0 2px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.stat .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.stat .v{font-size:22px;font-weight:700;margin-top:2px}
+.stat .s{font-size:11px;color:var(--muted)}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
+.rng{display:flex;align-items:center;gap:6px}
+.rng input{min-width:0}
+.rng span{color:var(--muted)}
+label.fld{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px}
+select,input[type=number],input[type=text]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--chip);cursor:pointer;user-select:none;font-size:12px}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.toggles{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.tg{display:flex;gap:6px;align-items:center;cursor:pointer;font-size:12px}
+.chartbox{height:340px;position:relative}
+.tablewrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}
+th,td{padding:7px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
+th{position:sticky;top:0;background:#f0f2f8;cursor:pointer;user-select:none;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);z-index:1}
+th.sort::after{content:" \\2195";opacity:.4}
+th.asc::after{content:" \\2191";opacity:.9}
+th.desc::after{content:" \\2193";opacity:.9}
+tr.out td{background:var(--goodbg)}
+tr.out td:first-child{box-shadow:inset 3px 0 0 var(--good)}
+.g-op{color:var(--op)}.g-pokemon{color:var(--pk)}.g-magic{color:var(--mg)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.pill{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--chip)}
+.muted{color:var(--muted)}
+.err{color:var(--bad);padding:10px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin:8px 2px}
+.legend span{display:flex;align-items:center}
+footer{color:var(--muted);font-size:11px;margin-top:12px}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:#eef3ff}
+tr.out:hover td{background:#dff0e4}
+.seasons{display:flex;gap:6px;margin-bottom:12px}
+.seasons .chip{font-weight:600}
+/* sidebar */
+#ov{position:fixed;inset:0;background:rgba(20,26,40,.28);opacity:0;pointer-events:none;transition:.15s;z-index:40}
+#ov.on{opacity:1;pointer-events:auto}
+#side{position:fixed;top:0;right:0;height:100%;width:min(420px,92vw);background:var(--panel);border-left:1px solid var(--line);
+  box-shadow:-8px 0 24px rgba(20,26,40,.12);transform:translateX(100%);transition:.18s;z-index:50;display:flex;flex-direction:column}
+#side.on{transform:none}
+#side header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line)}
+#side header h2{font-size:15px;margin:0}
+#side .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px;line-height:1}
+#side .body{padding:14px 16px;overflow:auto}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;margin-bottom:14px}
+.kv .k{color:var(--muted)}
+.kv .v{text-align:right;font-variant-numeric:tabular-nums}
+.ebtn{display:flex;align-items:center;gap:8px;width:100%;text-decoration:none;color:var(--ink);border:1px solid var(--line);
+  border-radius:9px;padding:9px 11px;margin-bottom:8px;background:#fff;font-size:13px;cursor:pointer}
+.ebtn:hover{background:#f4f6fc;border-color:#c9d2ea}
+.ebtn.primary{background:var(--accent);color:#fff;border-color:var(--accent);justify-content:center;font-weight:600}
+.ebtn small{color:var(--muted)}
+.ebtn.primary small{color:#dfe6ff}
+.note{font-size:11px;color:var(--muted);margin:10px 0 4px;line-height:1.5}
+/* tracking + favorites */
+.star{cursor:pointer;color:#c9a100;font-size:15px;padding:0 2px;line-height:1}
+.star:not(.on){color:#c2c8d6}
+.statuscell{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.stg{font-size:10px;padding:1px 6px;border-radius:999px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.stg.s-purchased{background:#e7edff;color:#3b5bdb}
+.stg.s-psa{background:#fff2d9;color:#b7791f}
+.stg.s-listed{background:#efe6ff;color:#6b46c1}
+.stg.s-sold{background:#e7f6ec;color:#2f9e57}
+.track{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.track h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 10px}
+.trow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px}
+.favbtn{width:100%;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:12px}
+.favbtn.on{background:#fff7e0;border-color:#e6c34d;color:#8a6d00}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:28px;height:28px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-size:15px}
+.stepper input{width:54px;text-align:center}
+.stages{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px}
+.stage{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px;cursor:pointer;font-size:12px;text-align:left}
+.stage.done{background:#eef3ff;border-color:#c9d6f7}
+.stage.cur{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.clr{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;margin-top:8px;text-decoration:underline}
+.authbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:-4px 0 10px;font-size:12px;flex-wrap:wrap}
+.authbar .ain{width:190px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.authbar .abtn{padding:6px 10px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;cursor:pointer;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Volt Cards — Grading ROI Dashboard</h1>
+  <div id="authbar" class="authbar"></div>
+  <div class="sub" id="sub">Loading…</div>
+
+  <div class="seasons" id="seasons">
+    <span class="chip" data-season="2026">2026 sets · live</span>
+    <span class="chip" data-season="2025">2025 sets · snapshot</span>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="controls">
+      <div>
+        <label class="fld">Snapshot week</label>
+        <select id="dateSel"></select>
+      </div>
+      <div>
+        <label class="fld">Set</label>
+        <select id="setSel"></select>
+      </div>
+      <div>
+        <label class="fld">Search name / parallel</label>
+        <input type="text" id="q" placeholder="e.g. Boa Hancock">
+      </div>
+      <div>
+        <label class="fld">Game</label>
+        <div class="chips" id="gameChips"></div>
+      </div>
+      <div>
+        <label class="fld">ROI outlier ≥ (%)</label>
+        <input type="number" id="roiT" value="150" step="10">
+      </div>
+      <div>
+        <label class="fld">Min. profit ($)</label>
+        <input type="number" id="profMin" value="0" step="10">
+      </div>
+      <div>
+        <label class="fld">Min volume (liquidity)</label>
+        <input type="number" id="volT" value="0" step="25">
+      </div>
+      <div>
+        <label class="fld">Raw price ($)</label>
+        <div class="rng"><input type="number" id="rawMin" placeholder="min" step="1"><span>–</span><input type="number" id="rawMax" placeholder="max" step="1"></div>
+      </div>
+      <div>
+        <label class="fld">PSA 10 price ($)</label>
+        <div class="rng"><input type="number" id="p10Min" placeholder="min" step="1"><span>–</span><input type="number" id="p10Max" placeholder="max" step="1"></div>
+      </div>
+    </div>
+    <div class="toggles" style="margin-top:6px">
+      <label class="tg"><input type="checkbox" id="liq" checked> Liquidity filter (PSA10 ≤ 5×PSA9)</label>
+      <label class="tg"><input type="checkbox" id="outOnly"> Outliers only</label>
+      <label class="tg"><input type="checkbox" id="favOnly"> ★ Favorites only</label>
+      <label class="tg"><input type="checkbox" id="hideUn" checked> Hide unpriced</label>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="legend">
+      <span><span class="dot" style="background:var(--pk)"></span>Pokémon</span>
+      <span><span class="dot" style="background:var(--op)"></span>One Piece</span>
+      <span><span class="dot" style="background:var(--mg)"></span>Magic</span>
+      <span class="muted">— larger points = outliers (above both thresholds). Dashed lines = thresholds.</span>
+    </div>
+    <div class="chartbox"><canvas id="scatter"></canvas></div>
+  </div>
+
+  <div class="tablewrap card" style="padding:0">
+    <table id="tbl"><thead></thead><tbody></tbody></table>
+  </div>
+  <footer id="foot"></footer>
+</div>
+
+<div id="ov"></div>
+<aside id="side">
+  <header><h2 id="sTitle">Card</h2><button class="close" id="sClose">×</button></header>
+  <div class="body" id="sBody"></div>
+</aside>
+
+<script id="static2025">window.STATIC_2025=[];</script>
+<script>
+const SB_URL = "https://fkcqdokxhcxutfqcqhnz.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrY3Fkb2t4aGN4dXRmcWNxaG56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MTI4NDAsImV4cCI6MjA5ODQ4ODg0MH0.JXVk3ijsTovXfaPcX9w-yUtCFJD416uPBAdGw2bzZjU";
+async function rest(path){
+  const res=await fetch(SB_URL+"/rest/v1/"+path,{headers:{apikey:SB_KEY,Authorization:"Bearer "+SB_KEY,Accept:"application/json"}});
+  if(!res.ok) throw new Error("Supabase "+res.status+" "+(await res.text()).slice(0,120));
+  return res.json();
+}
+const LS = "voltdash.v1";
+const GRADE = 79;   // grading cost per card
+let sb=null, SESSION=null;
+try{ sb=window.supabase.createClient(SB_URL,SB_KEY); }catch(e){ console.warn("supabase-js not loaded"); }
+const num = v => (v===null||v===undefined||v==="")?null:(typeof v==="number"?v:parseFloat(v));
+const money = v => v==null?"—":("$"+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}));
+const pct = v => v==null?"—":(Math.round(v*100)+"%");
+const gameColor = g => g==="one-piece"?getCss("--op"):g==="magic"?getCss("--mg"):getCss("--pk");
+function getCss(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+const ROWKEYS=["snapshot_date","set_name","game","psa10","card_number","name"];
+function looksLikeRows(a){
+  return Array.isArray(a) && (a.length===0 || (a[0] && typeof a[0]==="object" && ROWKEYS.some(k=>k in a[0])));
+}
+// Recursively locate the rows array regardless of how the connector nests/wraps it.
+function findRows(x,depth){
+  if(x==null||depth>6) return null;
+  if(looksLikeRows(x)) return x;
+  if(Array.isArray(x)){ for(const it of x){ const r=findRows(it,depth+1); if(r) return r; } return null; }
+  if(typeof x==="string"){
+    let o=null; try{o=JSON.parse(x);}catch(_){}
+    if(o){ const r=findRows(o,depth+1); if(r) return r; }
+    const s=x.indexOf("["), e=x.lastIndexOf("]");
+    if(s>=0&&e>s){ try{ const r=findRows(JSON.parse(x.slice(s,e+1)),depth+1); if(r) return r; }catch(_){} }
+    const m=x.match(/<untrusted-data[^>]*>([\s\S]*?)<\/untrusted-data/);
+    if(m){ try{ const r=findRows(JSON.parse(m[1].trim()),depth+1); if(r) return r; }catch(_){} }
+    return null;
+  }
+  if(typeof x==="object"){ for(const k in x){ const r=findRows(x[k],depth+1); if(r) return r; } }
+  return null;
+}
+async function runSql(){ throw new Error("unavailable in hosted build"); }
+
+// ---- state ----
+let RAW=[];            // rows for current date, enriched
+let VIEW=[];           // currently rendered (filtered/sorted) rows
+let chart=null;
+let sortKey="score", sortDir=-1;
+
+const st = Object.assign({season:"2026",games:[],set:"__all",q:"",roiT:150,profMin:0,volT:0,liq:true,outOnly:false,hideUn:true,favOnly:false,date:null,
+  rawMin:null,rawMax:null,p10Min:null,p10Max:null},
+  JSON.parse(localStorage.getItem(LS)||"{}"));
+function save(){localStorage.setItem(LS, JSON.stringify(st));}
+
+// ---- per-card tracking + favorites (persist locally) ----
+const TKEY="voltdash.track", FKEY="voltdash.fav";
+let TRACK=JSON.parse(localStorage.getItem(TKEY)||"{}");   // key -> {qty, stage}
+let FAV=JSON.parse(localStorage.getItem(FKEY)||"{}");     // key -> true
+function saveTrack(){localStorage.setItem(TKEY,JSON.stringify(TRACK));}
+function saveFav(){localStorage.setItem(FKEY,JSON.stringify(FAV));}
+const keyOf=r=>[r.game,r.set_name,r.card_number,r.parallel].join("¦");
+const STAGES=[["purchased","Purchased"],["psa","Sent to PSA"],["listed","Listed"],["sold","Sold"]];
+const stageIdx=s=>STAGES.findIndex(x=>x[0]===s);
+const stageLabel=s=>{const i=stageIdx(s);return i<0?"":STAGES[i][1];};
+const isFav=r=>!!FAV[keyOf(r)];
+const trackOf=r=>TRACK[keyOf(r)]||null;
+function toggleFav(r){const k=keyOf(r); if(FAV[k]) delete FAV[k]; else FAV[k]=true; saveFav(); syncCard(r);}
+function setQty(r,q){const k=keyOf(r); const t=TRACK[k]||{qty:0,stage:""}; t.qty=Math.max(0,q||0);
+  if(!t.qty&&!t.stage) delete TRACK[k]; else TRACK[k]=t; saveTrack(); syncCard(r);}
+function setStage(r,s){const k=keyOf(r); const t=TRACK[k]||{qty:0,stage:""}; t.stage=(t.stage===s)?"":s;
+  if(!t.qty&&!t.stage) delete TRACK[k]; else TRACK[k]=t; saveTrack(); syncCard(r);}
+async function syncCard(r){
+  if(!sb||!SESSION) return;
+  const t=TRACK[keyOf(r)]||{qty:0,stage:""}; const fav=!!FAV[keyOf(r)];
+  const m={user_id:SESSION.user.id, game:r.game, set_name:r.set_name, card_number:r.card_number, parallel:r.parallel};
+  try{
+    if(!t.qty && !t.stage && !fav){ await sb.from("card_tracking").delete().match(m); }
+    else { await sb.from("card_tracking").upsert(Object.assign({}, m, {qty:t.qty||0, stage:t.stage||"", favorite:fav}), {onConflict:"user_id,game,set_name,card_number,parallel"}); }
+  }catch(e){ console.warn("sync failed", e); }
+}
+async function loadTracking(){
+  if(!sb||!SESSION) return;
+  try{
+    const {data,error}=await sb.from("card_tracking").select("*");
+    if(error){ console.warn(error); return; }
+    TRACK={}; FAV={};
+    (data||[]).forEach(d=>{ const k=[d.game,d.set_name,d.card_number,d.parallel].join("\u00a6");
+      if(d.qty||d.stage) TRACK[k]={qty:d.qty||0,stage:d.stage||""}; if(d.favorite) FAV[k]=true; });
+    saveTrack(); saveFav(); render();
+  }catch(e){}
+}
+function renderAuth(){
+  const el=document.getElementById("authbar"); if(!el) return;
+  if(!sb){ el.innerHTML='<span class="muted">Sign-in unavailable</span>'; return; }
+  if(SESSION){ el.innerHTML='<span class="muted">\u2601 Synced \u00b7 '+SESSION.user.email+'</span> <button class="abtn" id="soBtn">Sign out</button>';
+    document.getElementById("soBtn").onclick=signOut; }
+  else { el.innerHTML='<input id="emailIn" type="email" placeholder="you@email.com" class="ain"><button class="abtn" id="siBtn">Sign in to save tracking</button>';
+    document.getElementById("siBtn").onclick=()=>signIn((document.getElementById("emailIn").value||"").trim()); }
+}
+async function signIn(email){
+  if(!email){ alert("Enter your email address."); return; }
+  try{ const {error}=await sb.auth.signInWithOtp({email, options:{emailRedirectTo:location.href.split("#")[0]}});
+    alert(error?("Sign-in error: "+error.message):"Check your email for a sign-in link."); }catch(e){ alert("Sign-in error."); }
+}
+async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} SESSION=null; renderAuth(); }
+async function initAuth(){
+  if(!sb){ renderAuth(); return; }
+  try{ const {data}=await sb.auth.getSession(); SESSION=data.session; }catch(e){ SESSION=null; }
+  renderAuth(); if(SESSION) loadTracking();
+  sb.auth.onAuthStateChange((_e,s)=>{ SESSION=s; renderAuth(); if(s) loadTracking(); });
+}
+
+function enrich(r){
+  const gr=num(r.gem_rate), raw=num(r.raw), p9=num(r.psa9), p10=num(r.psa10);
+  const priced = raw!=null && p9!=null && p10!=null && p9>0;
+  let profit=null, roi=null, liqOk=false;
+  if(priced){
+    profit=(gr*p10 + (1-gr)*p9)*0.88 - GRADE - raw;
+    roi = profit/p9;
+    liqOk = p10 <= 5*p9;
+  }
+  return Object.assign({}, r, {gr,raw,p9,p10,priced,profit,roi,liqOk,
+    score:(profit!=null&&roi!=null)?profit*roi:-1e9, d10:num(r.psa10_chg)});
+}
+
+function isOut(x){ return x.priced && x.roi*100>=st.roiT; }
+
+function filtered(){
+  return RAW.filter(x=>{
+    if(st.games.length && !st.games.includes(x.game)) return false;
+    if(st.set!=="__all" && x.set_name!==st.set) return false;
+    if(st.hideUn && !x.priced) return false;
+    if(st.liq && x.priced && !x.liqOk) return false;
+    if(num(x.volume)!=null && num(x.volume) < st.volT) return false;
+    if(st.rawMin!=null){ if(x.raw==null || x.raw < st.rawMin) return false; }
+    if(st.rawMax!=null){ if(x.raw==null || x.raw > st.rawMax) return false; }
+    if(st.p10Min!=null){ if(x.p10==null || x.p10 < st.p10Min) return false; }
+    if(st.p10Max!=null){ if(x.p10==null || x.p10 > st.p10Max) return false; }
+    if(st.profMin>0){ if(!x.priced || x.profit < st.profMin) return false; }
+    if(st.favOnly && !isFav(x)) return false;
+    if(st.q){ const q=st.q.toLowerCase(); if(!((x.name||"").toLowerCase().includes(q)||(x.parallel||"").toLowerCase().includes(q))) return false; }
+    if(st.outOnly && !isOut(x)) return false;
+    return true;
+  });
+}
+
+const COLS=[
+  ["set_name","Set",r=>shortSet(r.set_name)],
+  ["name","Name",r=>r.name],
+  ["parallel","Parallel",r=>r.parallel],
+  ["card_number","#",r=>r.card_number||"—"],
+  ["gr","Gem%",r=>pct(r.gr)],
+  ["raw","Raw",r=>money(r.raw)],
+  ["p9","PSA9",r=>money(r.p9)],
+  ["p10","PSA10",r=>money(r.p10)],
+  ["profit","Est. Profit",r=>r.profit==null?"—":money(r.profit)],
+  ["roi","ROI",r=>r.roi==null?"—":Math.round(r.roi*100)+"%"],
+  ["d10","Δ PSA10",r=>r.d10==null?"—":`<span class="${r.d10>=0?'pos':'neg'}">${r.d10>=0?'+':'-'}$${Math.abs(r.d10).toFixed(2)}</span>`],
+  ["volume","Vol",r=>num(r.volume)==null?"—":num(r.volume)],
+  ["_status","★ / Status",r=>statusCell(r)],
+];
+function shortSet(s){return (s||"").replace(" (EN)","").replace("Pokemon ","Pkmn ").replace("One Piece ","OP ");}
+function statusCell(r){
+  const fav=isFav(r), t=trackOf(r);
+  const star=`<span class="star${fav?' on':''}" data-fav="1" title="Favorite">${fav?'★':'☆'}</span>`;
+  let badge="";
+  if(t){ const p=[]; if(t.qty) p.push("×"+t.qty); if(t.stage) p.push(stageLabel(t.stage));
+    if(p.length) badge=`<span class="stg s-${t.stage||'none'}">${p.join(" · ")}</span>`; }
+  return `<div class="statuscell">${badge}${star}</div>`;
+}
+
+function render(){
+  const rows=filtered();
+  rows.sort((a,b)=>{
+    let av=a[sortKey], bv=b[sortKey];
+    av=(av==null)?-Infinity:(typeof av==="string"?av.toLowerCase():av);
+    bv=(bv==null)?-Infinity:(typeof bv==="string"?bv.toLowerCase():bv);
+    if(av<bv) return -sortDir; if(av>bv) return sortDir; return 0;
+  });
+  // stats
+  const priced=rows.filter(r=>r.priced);
+  const outs=rows.filter(isOut);
+  const rois=priced.map(r=>r.roi).sort((a,b)=>a-b);
+  const med=rois.length?rois[Math.floor(rois.length/2)]:null;
+  const best=priced.reduce((m,r)=>(!m||r.profit>m.profit)?r:m,null);
+  document.getElementById("stats").innerHTML=[
+    stat("Cards shown", rows.length, priced.length+" priced"),
+    stat("Outliers", outs.length, "ROI ≥ "+st.roiT+"%"),
+    stat("Median ROI", med==null?"—":Math.round(med*100)+"%", "of priced cards"),
+    stat("Top profit", best?money(best.profit):"—", best?(shortSet(best.set_name)+" · "+best.name):""),
+  ].join("");
+  // header
+  const thead=document.querySelector("#tbl thead");
+  thead.innerHTML="<tr>"+COLS.map(c=>{
+    let cl="sort"; if(c[0]===sortKey) cl=sortDir>0?"asc":"desc";
+    return `<th class="${cl}" data-k="${c[0]}">${c[1]}</th>`;
+  }).join("")+"</tr>";
+  thead.querySelectorAll("th").forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k; if(k===sortKey) sortDir*=-1; else {sortKey=k; sortDir=(k==="name"||k==="parallel"||k==="set_name")?1:-1;}
+    render();
+  });
+  // body
+  const tb=document.querySelector("#tbl tbody");
+  VIEW=rows.slice(0,600);
+  tb.innerHTML=VIEW.map((r,i)=>{
+    const out=isOut(r)?"out":"";
+    return `<tr class="${out}" data-i="${i}">`+COLS.map(c=>{
+      let v=c[2](r);
+      if(c[0]==="set_name") v=`<span class="dot" style="background:${gameColor(r.game)}"></span>${v}`;
+      if(c[0]==="roi"&&r.roi!=null){const h=Math.min(120,Math.max(0,r.roi*80));v=`<span style="color:hsl(${h},70%,35%);font-weight:600">${v}</span>`;}
+      return `<td>${v}</td>`;
+    }).join("")+"</tr>";
+  }).join("");
+  document.getElementById("foot").textContent=`Showing ${Math.min(rows.length,600)} of ${rows.length} rows · snapshot ${st.date} · source PriceCharting · expected profit = (gem%×PSA10 + (1−gem%)×PSA9)×0.88 − $${GRADE} grading − Raw`;
+  drawChart(rows);
+}
+function stat(k,v,s){return `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;}
+
+const threshPlugin={id:"thresh",afterDraw(c){
+  const {ctx,chartArea:a,scales:{x,y}}=c; if(!a)return;
+  ctx.save();ctx.lineWidth=1;
+  const hline=(val,color)=>{const py=y.getPixelForValue(val); if(py>=a.top&&py<=a.bottom){ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(a.left,py);ctx.lineTo(a.right,py);ctx.stroke();}};
+  const vline=(val,color)=>{const px=x.getPixelForValue(val); if(px>=a.left&&px<=a.right){ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}};
+  ctx.setLineDash([5,4]); hline(st.roiT,"rgba(120,130,150,.7)");        // outlier ROI line (horizontal)
+  if(st.profMin>0){ ctx.setLineDash([2,3]); vline(st.profMin,"rgba(209,67,91,.55)"); } // min-profit line (vertical)
+  ctx.restore();
+}};
+
+function drawChart(rows){
+  const pts=rows.filter(r=>r.priced);
+  const mk=r=>({x:r.profit,y:r.roi*100,r:isOut(r)?6:3,_r:r});
+  const byg={};
+  pts.forEach(r=>{(byg[r.game]=byg[r.game]||[]).push(mk(r));});
+  const ds=Object.keys(byg).map(g=>({label:g,data:byg[g],
+    backgroundColor:byg[g].map(p=>isOut(p._r)?gameColor(g):hexA(gameColor(g),.35)),
+    borderColor:gameColor(g),pointRadius:byg[g].map(p=>p.r),pointHoverRadius:8}));
+  const cfg={type:"scatter",data:{datasets:ds},plugins:[threshPlugin],options:{
+    responsive:true,maintainAspectRatio:false,
+    onClick:(evt,els)=>{ if(els&&els.length){ const el=els[0];
+      const p=chart.data.datasets[el.datasetIndex].data[el.index]; if(p&&p._r) openCard(p._r); } },
+    onHover:(evt,els)=>{ if(evt&&evt.native&&evt.native.target) evt.native.target.style.cursor=(els&&els.length)?"pointer":"default"; },
+    scales:{x:{title:{display:true,text:"Estimated profit ($)"},grid:{color:"#eef0f6"}},
+            y:{title:{display:true,text:"ROI (%)"},grid:{color:"#eef0f6"}}},
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const r=c.raw._r;
+      return `${r.name} ${r.parallel} #${r.card_number} · profit ${money(r.profit)} · ROI ${Math.round(r.roi*100)}% · (click to open)`;}}}}
+  }};
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById("scatter"),cfg);
+}
+function hexA(hex,a){const h=hex.replace('#','');const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
+
+// ---- wire controls ----
+function syncControls(){
+  document.getElementById("roiT").value=st.roiT;
+  document.getElementById("profMin").value=st.profMin;
+  document.getElementById("volT").value=st.volT;
+  document.getElementById("favOnly").checked=st.favOnly;
+  document.getElementById("q").value=st.q;
+  document.getElementById("liq").checked=st.liq;
+  document.getElementById("outOnly").checked=st.outOnly;
+  document.getElementById("hideUn").checked=st.hideUn;
+  document.getElementById("rawMin").value=st.rawMin??"";
+  document.getElementById("rawMax").value=st.rawMax??"";
+  document.getElementById("p10Min").value=st.p10Min??"";
+  document.getElementById("p10Max").value=st.p10Max??"";
+}
+const numOrNull=v=>v===""||v==null?null:(isNaN(+v)?null:+v);
+function buildGameChips(){
+  const games=[...new Set(RAW.map(r=>r.game))];
+  const el=document.getElementById("gameChips"); el.innerHTML="";
+  games.forEach(g=>{
+    const c=document.createElement("span");
+    c.className="chip"+(st.games.includes(g)?" on":"");
+    c.textContent=g==="one-piece"?"One Piece":g[0].toUpperCase()+g.slice(1);
+    c.onclick=()=>{ if(st.games.includes(g)) st.games=st.games.filter(x=>x!==g); else st.games.push(g);
+      save(); buildSetOptions(); c.classList.toggle("on"); render(); };
+    el.appendChild(c);
+  });
+}
+function buildSetOptions(){
+  const pool=RAW.filter(r=>!st.games.length||st.games.includes(r.game));
+  const sets=[...new Set(pool.map(r=>r.set_name))].sort();
+  const sel=document.getElementById("setSel");
+  sel.innerHTML=`<option value="__all">All sets (${sets.length})</option>`+sets.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${shortSet(s)}</option>`).join("");
+  sel.value=sets.includes(st.set)?st.set:"__all"; st.set=sel.value;
+}
+function bind(){
+  const on=(id,ev,fn)=>document.getElementById(id).addEventListener(ev,fn);
+  on("roiT","input",e=>{st.roiT=+e.target.value||0;save();render();});
+  on("profMin","input",e=>{st.profMin=+e.target.value||0;save();render();});
+  on("volT","input",e=>{st.volT=+e.target.value||0;save();render();});
+  on("favOnly","change",e=>{st.favOnly=e.target.checked;save();render();});
+  on("rawMin","input",e=>{st.rawMin=numOrNull(e.target.value);save();render();});
+  on("rawMax","input",e=>{st.rawMax=numOrNull(e.target.value);save();render();});
+  on("p10Min","input",e=>{st.p10Min=numOrNull(e.target.value);save();render();});
+  on("p10Max","input",e=>{st.p10Max=numOrNull(e.target.value);save();render();});
+  on("q","input",e=>{st.q=e.target.value;save();render();});
+  on("liq","change",e=>{st.liq=e.target.checked;save();render();});
+  on("outOnly","change",e=>{st.outOnly=e.target.checked;save();render();});
+  on("hideUn","change",e=>{st.hideUn=e.target.checked;save();render();});
+  on("setSel","change",e=>{st.set=e.target.value;save();render();});
+  on("dateSel","change",e=>{st.date=e.target.value;save();loadDate();});
+}
+
+function afterLoad(subText){
+  buildGameChips(); buildSetOptions();
+  document.getElementById("sub").textContent=subText;
+  render();
+}
+
+async function loadDate(){
+  document.getElementById("sub").textContent="Loading "+st.date+"…";
+  const cols="snapshot_date,season,game,set_name,card_number,name,parallel,gems,total,gem_rate,raw,psa9,psa10,volume,source,raw_chg,psa9_chg,psa10_chg,prev_date";
+  const data=await rest(`price_changes?season=eq.${st.season}&snapshot_date=eq.${st.date}&select=${cols}&order=total.desc&limit=6000`);
+  RAW=data.map(enrich);
+  const prev=RAW.length&&RAW[0].prev_date?(" · vs "+RAW[0].prev_date):"";
+  afterLoad(`${RAW.length} cards · ${st.season} · ${st.date}${prev}`);
+}
+
+function loadStatic2025(){
+  const data=(window.STATIC_2025||[]).slice().sort((a,b)=>(b.total||0)-(a.total||0));
+  RAW=data.map(enrich);
+  afterLoad(`${RAW.length} priced cards · 2025 sets · reference snapshot (not weekly-tracked)`);
+}
+
+async function ensureDates(){
+  const dsel=document.getElementById("dateSel");
+  const draw=await rest(`price_snapshots?season=eq.${st.season}&select=snapshot_date&order=snapshot_date.desc&limit=100000`);
+  const dates=[...new Set(draw.map(r=>r.snapshot_date))];
+  dsel.innerHTML=dates.map(d=>`<option value="${d}">${d}</option>`).join("");
+  if(!dates.includes(st.date)) st.date=dates[0]||null;
+  dsel.value=st.date; save();
+}
+async function loadSeason(){
+  document.getElementById("dateSel").parentElement.style.display="";
+  await ensureDates();
+  if(!st.date){ RAW=[]; buildGameChips(); buildSetOptions(); document.getElementById("sub").textContent=`No data yet for ${st.season}.`; render(); return; }
+  await loadDate();
+}
+
+function buildSeasonChips(){
+  document.querySelectorAll("#seasons .chip").forEach(c=>{
+    c.classList.toggle("on", c.dataset.season===st.season);
+    c.onclick=async()=>{ st.season=c.dataset.season; st.set="__all"; save(); buildSeasonChips();
+      try{ await loadSeason(); }catch(e){ document.getElementById("sub").innerHTML=`<span class="err">${e.message}</span>`; } };
+  });
+}
+
+// ---- eBay + card sidebar ----
+function ebayUrl(r, mode){
+  const bits=[r.name, r.parallel, r.card_number].filter(Boolean).join(" ");
+  let kw=bits;
+  if(mode==="psa10") kw+=" PSA 10";
+  else if(mode==="psa9") kw+=" PSA 9";
+  else if(mode==="raw") kw+=" -PSA -BGS -CGC";
+  let u="https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(kw)+"&_sacat=0";
+  if(mode!=="active") u+="&LH_Sold=1&LH_Complete=1";
+  return u;
+}
+function openCard(r){
+  document.getElementById("sTitle").textContent=`${r.name} · ${r.parallel}`;
+  const q=[r.name,r.parallel,r.card_number].filter(Boolean).join(" ");
+  const rowKV=(k,v)=>`<div class="k">${k}</div><div class="v">${v}</div>`;
+  const body=document.getElementById("sBody");
+  const btn=(mode,label,sub)=>`<a class="ebtn" href="${ebayUrl(r,mode)}" target="_blank" rel="noopener"><span>🔎 ${label}</span><small>${sub}</small></a>`;
+  const t=trackOf(r), fav=isFav(r);
+  const trackHtml=`
+    <div class="track">
+      <h3>My tracking</h3>
+      <button class="favbtn${fav?" on":""}" id="favBtn">${fav?"★ Favorited":"☆ Add to favorites"}</button>
+      <div class="trow"><span>Purchased qty</span>
+        <div class="stepper"><button id="qMinus">−</button><input type="number" id="qtyIn" min="0" value="${t?t.qty:0}"><button id="qPlus">+</button></div>
+      </div>
+      <div class="stages" id="stages">
+        ${STAGES.map((s,i)=>{const cur=t&&t.stage===s[0]; const done=t&&t.stage&&stageIdx(t.stage)>=i;
+          return `<button class="stage${done?" done":""}${cur?" cur":""}" data-s="${s[0]}">${i+1}. ${s[1]}</button>`;}).join("")}
+      </div>
+      ${t?`<button class="clr" id="clrTrack">Clear tracking for this card</button>`:""}
+    </div>`;
+  body.innerHTML=`
+    <div class="kv">
+      ${rowKV("Set", shortSet(r.set_name))}
+      ${rowKV("Card #", r.card_number||"—")}
+      ${rowKV("Gem rate", pct(r.gr))}
+      ${rowKV("Pop (10 / total)", (r.gems||0)+" / "+(r.total||0))}
+      ${rowKV("Raw", money(r.raw))}
+      ${rowKV("PSA 9", money(r.p9))}
+      ${rowKV("PSA 10", money(r.p10))}
+      ${rowKV("Est. profit", r.profit==null?"—":money(r.profit))}
+      ${rowKV("ROI", r.roi==null?"—":Math.round(r.roi*100)+"%")}
+      ${rowKV("Volume", num(r.volume)==null?"—":num(r.volume))}
+    </div>
+    ${trackHtml}
+    <div class="note">Open eBay listings (with photos) in your browser:</div>
+    ${btn("psa10","Sold — PSA 10","completed sales")}
+    ${btn("psa9","Sold — PSA 9","completed sales")}
+    ${btn("raw","Sold — Raw","ungraded")}
+    ${btn("active","Active listings","currently for sale")}
+  `;
+  const refresh=()=>{ render(); openCard(r); };
+  document.getElementById("favBtn").onclick=()=>{ toggleFav(r); refresh(); };
+  document.getElementById("qPlus").onclick=()=>{ setQty(r,((trackOf(r)||{}).qty||0)+1); refresh(); };
+  document.getElementById("qMinus").onclick=()=>{ setQty(r,((trackOf(r)||{}).qty||0)-1); refresh(); };
+  document.getElementById("qtyIn").onchange=e=>{ setQty(r,parseInt(e.target.value)||0); refresh(); };
+  document.getElementById("stages").querySelectorAll(".stage").forEach(b=>b.onclick=()=>{ setStage(r,b.dataset.s); refresh(); });
+  const clr=document.getElementById("clrTrack"); if(clr) clr.onclick=()=>{ delete TRACK[keyOf(r)]; saveTrack(); syncCard(r); refresh(); };
+  document.getElementById("ov").classList.add("on");
+  document.getElementById("side").classList.add("on");
+}
+function closeSide(){ document.getElementById("ov").classList.remove("on"); document.getElementById("side").classList.remove("on"); }
+
+async function boot(){
+  try{
+    syncControls(); bind(); buildSeasonChips(); renderAuth(); initAuth();
+    document.getElementById("sClose").onclick=closeSide;
+    document.getElementById("ov").onclick=closeSide;
+    document.querySelector("#tbl tbody").addEventListener("click",e=>{
+      const tr=e.target.closest("tr[data-i]"); if(!tr) return;
+      const r=VIEW[+tr.dataset.i]; if(!r) return;
+      if(e.target.closest(".star")){ toggleFav(r); render(); return; }
+      openCard(r);
+    });
+    await loadSeason();
+  }catch(err){
+    document.getElementById("sub").innerHTML=`<span class="err">Couldn't load data: ${err.message}. Use the Reload button after the connector is ready.</span>`;
+  }
+}
+boot();
+</script>
+</body>
+</html>
