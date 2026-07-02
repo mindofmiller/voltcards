@@ -105,6 +105,18 @@ tr.out:hover td{background:#dff0e4}
 .authbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:-4px 0 10px;font-size:12px;flex-wrap:wrap}
 .authbar .ain{width:190px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
 .authbar .abtn{padding:6px 10px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;cursor:pointer;font-size:12px}
+.pbtn{margin-left:auto;padding:5px 12px;border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:999px;cursor:pointer;font-size:12px;font-weight:600}
+.pbtn:hover{background:var(--accent);color:#fff}
+.povl{position:fixed;inset:0;background:rgba(20,26,40,.28);opacity:0;pointer-events:none;transition:.15s;z-index:60}
+.povl.on{opacity:1;pointer-events:auto}
+#pmodal{position:fixed;top:4vh;left:50%;transform:translateX(-50%) translateY(-20px);width:min(1000px,94vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(20,26,40,.25);z-index:70;display:none;flex-direction:column;opacity:0;transition:.15s}
+#pmodal.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#pmodal header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+#pmodal header h2{margin:0;font-size:15px}
+#pmodal .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px}
+.pbody{padding:14px 16px;overflow:auto}
+.psum{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:12px;font-weight:600}
+.ptbl th{position:sticky;top:0}
 </style>
 </head>
 <body>
@@ -116,7 +128,10 @@ tr.out:hover td{background:#dff0e4}
   <div class="seasons" id="seasons">
     <span class="chip" data-season="2026">2026 sets · live</span>
     <span class="chip" data-season="2025">2025 sets · snapshot</span>
+    <button id="purchasedBtn" class="pbtn">📦 Purchased</button>
   </div>
+  <div id="pov" class="povl"></div>
+  <div id="pmodal"><header><h2>📦 Purchased cards</h2><button class="close" id="pClose">×</button></header><div class="pbody" id="pbody"></div></div>
 
   <div class="stats" id="stats"></div>
 
@@ -600,11 +615,47 @@ function openCard(r){
 }
 function closeSide(){ document.getElementById("ov").classList.remove("on"); document.getElementById("side").classList.remove("on"); }
 
+// ---- Purchased view ----
+function closePurchases(){ document.getElementById("pov").classList.remove("on"); document.getElementById("pmodal").classList.remove("on"); }
+async function openPurchases(){
+  document.getElementById("pov").classList.add("on");
+  document.getElementById("pmodal").classList.add("on");
+  const body=document.getElementById("pbody");
+  if(!sb||!SESSION){ body.innerHTML='<p class="note">Sign in (top-right) to see the cards you\'ve purchased.</p>'; return; }
+  body.innerHTML='<p class="note">Loading…</p>';
+  try{
+    const {data,error}=await sb.from("my_purchases").select("*");
+    if(error){ body.innerHTML='<p class="err">'+error.message+'</p>'; return; }
+    renderPurchases(data||[]);
+  }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
+}
+function renderPurchases(rows){
+  const body=document.getElementById("pbody");
+  const m=v=>v==null||v===""?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(!rows.length){ body.innerHTML='<p class="note">No purchased cards yet. eBay buys are matched and appear here automatically.</p>'; return; }
+  rows.forEach(r=>{ r.paidN=+r.paid||0; r.profitN=(r.est_profit==null?null:+r.est_profit); r.roiN=(r.paidN>0&&r.profitN!=null)?r.profitN/r.paidN:null; });
+  rows.sort((a,b)=>String(b.txn_date||"").localeCompare(String(a.txn_date||"")));
+  const spent=rows.reduce((s,r)=>s+r.paidN,0);
+  const proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
+  let h=`<div class="psum"><span>${rows.length} cards</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Purchased</th><th>Card</th><th>Set</th><th>#</th><th>Paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const roi=r.roiN==null?"—":`<span class="${r.roiN>=0?'pos':'neg'}">${Math.round(r.roiN*100)}%</span>`;
+    const prof=r.profitN==null?"—":`<span class="${r.profitN>=0?'pos':'neg'}">${m(r.profitN)}</span>`;
+    h+=`<tr><td>${r.txn_date||"—"}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${m(r.paidN)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td></tr>`;
+  });
+  h+='</tbody></table></div>';
+  body.innerHTML=h;
+}
+
 async function boot(){
   try{
     syncControls(); bind(); buildSeasonChips(); renderAuth(); initAuth();
     document.getElementById("sClose").onclick=closeSide;
     document.getElementById("ov").onclick=closeSide;
+    document.getElementById("purchasedBtn").onclick=openPurchases;
+    document.getElementById("pClose").onclick=closePurchases;
+    document.getElementById("pov").onclick=closePurchases;
     document.querySelector("#tbl tbody").addEventListener("click",e=>{
       const tr=e.target.closest("tr[data-i]"); if(!tr) return;
       const r=VIEW[+tr.dataset.i]; if(!r) return;
