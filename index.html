@@ -109,17 +109,17 @@ tr.out:hover td{background:#dff0e4}
 .pbtn:hover{background:var(--accent);color:#fff}
 .povl{position:fixed;inset:0;background:rgba(20,26,40,.28);opacity:0;pointer-events:none;transition:.15s;z-index:60}
 .povl.on{opacity:1;pointer-events:auto}
-#pmodal{position:fixed;top:4vh;left:50%;transform:translateX(-50%) translateY(-20px);width:min(1000px,94vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(20,26,40,.25);z-index:70;display:none;flex-direction:column;opacity:0;transition:.15s}
-#pmodal.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
-#pmodal header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
-#pmodal header h2{margin:0;font-size:15px}
-#pmodal .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px}
+#pmodal,#fmodal{position:fixed;top:4vh;left:50%;transform:translateX(-50%) translateY(-20px);width:min(1000px,94vw);max-height:92vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(20,26,40,.25);z-index:70;display:none;flex-direction:column;opacity:0;transition:.15s}
+#pmodal.on,#fmodal.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#pmodal header,#fmodal header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+#pmodal header h2,#fmodal header h2{margin:0;font-size:15px}
+#pmodal .close,#fmodal .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px}
 .pbody{padding:14px 16px;overflow:auto}
 .psum{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:12px;font-weight:600}
 .ptbl th{position:sticky;top:0}
 .phdr{display:flex;gap:8px;align-items:center}
-#pmodal tbody tr{cursor:pointer}
-#pmodal tbody tr:hover td{background:#eef3ff}
+#pmodal tbody tr,#fmodal tbody tr{cursor:pointer}
+#pmodal tbody tr:hover td,#fmodal tbody tr:hover td{background:#eef3ff}
 .addform{padding:12px 16px;border-bottom:1px solid var(--line);background:#fafbff}
 .addform .ain2{padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
 .addform #acard,.addform #abulktext{width:100%;margin-bottom:4px}
@@ -127,6 +127,11 @@ tr.out:hover td{background:#dff0e4}
 .amode{display:flex;gap:6px;margin-bottom:10px}
 .amode button{padding:5px 12px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer;font-size:12px}
 .amode button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.prov{font-size:11px;color:var(--muted);line-height:1.5;margin:0 0 12px;padding:8px 10px;background:#f7f9fd;border:1px solid var(--line);border-radius:8px}
+.langbadge{display:inline-block;font-weight:700;font-size:10px;padding:1px 6px;border-radius:5px;background:#e7edff;color:#3b5bdb;margin-right:4px}
+.langbadge.jp{background:#ffe9e9;color:#c0392b}
+.lowc{color:#c98a00;font-weight:600}
+.okc{color:var(--good)}
 </style>
 </head>
 <body>
@@ -136,12 +141,15 @@ tr.out:hover td{background:#dff0e4}
   <div class="sub" id="sub">Loading…</div>
 
   <div class="seasons" id="seasons">
-    <span class="chip" data-season="2026">2026 sets · live</span>
-    <span class="chip" data-season="2025">2025 sets · snapshot</span>
+    <span class="chip" data-season="2026">2026 sets</span>
+    <span class="chip" data-season="2025">2025 sets</span>
+    <button id="favBtnTop" class="pbtn">⭐ Favorites</button>
     <button id="purchasedBtn" class="pbtn">📦 Purchased</button>
   </div>
   <div id="pov" class="povl"></div>
   <div id="pmodal"><header><h2>📦 Purchased cards</h2><div class="phdr"><button id="addPurchaseBtn" class="pbtn">➕ Add</button><button class="close" id="pClose">×</button></div></header><div class="addform" id="addForm" style="display:none"></div><div class="pbody" id="pbody"></div></div>
+  <div id="fov" class="povl"></div>
+  <div id="fmodal"><header><h2>⭐ Favorites</h2><button class="close" id="fClose">×</button></header><div class="pbody" id="fbody"></div></div>
 
   <div class="stats" id="stats"></div>
 
@@ -164,10 +172,6 @@ tr.out:hover td{background:#dff0e4}
         <div class="chips" id="gameChips"></div>
       </div>
       <div>
-        <label class="fld">ROI outlier ≥ (%)</label>
-        <input type="number" id="roiT" value="150" step="10">
-      </div>
-      <div>
         <label class="fld">Min. profit ($)</label>
         <input type="number" id="profMin" value="0" step="10">
       </div>
@@ -186,8 +190,7 @@ tr.out:hover td{background:#dff0e4}
     </div>
     <div class="toggles" style="margin-top:6px">
       <label class="tg"><input type="checkbox" id="liq" checked> Liquidity filter (PSA10 ≤ 5×PSA9)</label>
-      <label class="tg"><input type="checkbox" id="outOnly"> Outliers only</label>
-      <label class="tg"><input type="checkbox" id="favOnly"> ★ Favorites only</label>
+      <label class="tg"><input type="checkbox" id="lowConfHide"> Hide low-confidence prices</label>
       <label class="tg"><input type="checkbox" id="hideUn" checked> Hide unpriced</label>
     </div>
   </div>
@@ -197,7 +200,7 @@ tr.out:hover td{background:#dff0e4}
       <span><span class="dot" style="background:var(--pk)"></span>Pokémon</span>
       <span><span class="dot" style="background:var(--op)"></span>One Piece</span>
       <span><span class="dot" style="background:var(--mg)"></span>Magic</span>
-      <span class="muted">— larger points = outliers (above both thresholds). Dashed lines = thresholds.</span>
+      <span class="muted">— larger points = more graded (population). Dashed line = min-profit filter.</span>
     </div>
     <div class="chartbox"><canvas id="scatter"></canvas></div>
   </div>
@@ -223,7 +226,7 @@ async function rest(path){
   if(!res.ok) throw new Error("Supabase "+res.status+" "+(await res.text()).slice(0,120));
   return res.json();
 }
-const LS = "voltdash.v1";
+const LS = "voltdash.v2";
 const GRADE = 79;   // grading cost per card
 let sb=null, SESSION=null;
 try{ sb=window.supabase.createClient(SB_URL,SB_KEY); }catch(e){ console.warn("supabase-js not loaded"); }
@@ -262,7 +265,7 @@ let VIEW=[];           // currently rendered (filtered/sorted) rows
 let chart=null;
 let sortKey="score", sortDir=-1;
 
-const st = Object.assign({season:"2026",games:[],set:"__all",q:"",roiT:150,profMin:0,volT:0,liq:true,outOnly:false,hideUn:true,favOnly:false,date:null,
+const st = Object.assign({seasons:["2026"],games:[],set:"__all",q:"",profMin:0,volT:0,liq:true,hideUn:true,lowConfHide:false,date:null,
   rawMin:null,rawMax:null,p10Min:null,p10Max:null},
   JSON.parse(localStorage.getItem(LS)||"{}"));
 function save(){localStorage.setItem(LS, JSON.stringify(st));}
@@ -338,7 +341,7 @@ function enrich(r){
     score:(profit!=null&&roi!=null)?profit*roi:-1e9, d10:num(r.psa10_chg)});
 }
 
-function isOut(x){ return x.priced && x.roi*100>=st.roiT; }
+function dotR(x){ const v=num(x.total)||0; return Math.max(2.5, Math.min(16, 2.5+Math.sqrt(v)/8)); }
 
 function filtered(){
   return RAW.filter(x=>{
@@ -346,15 +349,14 @@ function filtered(){
     if(st.set!=="__all" && x.set_name!==st.set) return false;
     if(st.hideUn && !x.priced) return false;
     if(st.liq && x.priced && !x.liqOk) return false;
+    if(st.lowConfHide && x.price_confidence==="low") return false;
     if(num(x.volume)!=null && num(x.volume) < st.volT) return false;
     if(st.rawMin!=null){ if(x.raw==null || x.raw < st.rawMin) return false; }
     if(st.rawMax!=null){ if(x.raw==null || x.raw > st.rawMax) return false; }
     if(st.p10Min!=null){ if(x.p10==null || x.p10 < st.p10Min) return false; }
     if(st.p10Max!=null){ if(x.p10==null || x.p10 > st.p10Max) return false; }
     if(st.profMin>0){ if(!x.priced || x.profit < st.profMin) return false; }
-    if(st.favOnly && !isFav(x)) return false;
     if(st.q){ const q=st.q.toLowerCase(); if(!((x.name||"").toLowerCase().includes(q)||(x.parallel||"").toLowerCase().includes(q))) return false; }
-    if(st.outOnly && !isOut(x)) return false;
     return true;
   });
 }
@@ -394,13 +396,13 @@ function render(){
   });
   // stats
   const priced=rows.filter(r=>r.priced);
-  const outs=rows.filter(isOut);
+  const lowc=rows.filter(r=>r.price_confidence==="low").length;
   const rois=priced.map(r=>r.roi).sort((a,b)=>a-b);
   const med=rois.length?rois[Math.floor(rois.length/2)]:null;
   const best=priced.reduce((m,r)=>(!m||r.profit>m.profit)?r:m,null);
   document.getElementById("stats").innerHTML=[
     stat("Cards shown", rows.length, priced.length+" priced"),
-    stat("Outliers", outs.length, "ROI ≥ "+st.roiT+"%"),
+    stat("Low-confidence", lowc, "flagged prices"),
     stat("Median ROI", med==null?"—":Math.round(med*100)+"%", "of priced cards"),
     stat("Top profit", best?money(best.profit):"—", best?(shortSet(best.set_name)+" · "+best.name):""),
   ].join("");
@@ -418,8 +420,7 @@ function render(){
   const tb=document.querySelector("#tbl tbody");
   VIEW=rows.slice(0,600);
   tb.innerHTML=VIEW.map((r,i)=>{
-    const out=isOut(r)?"out":"";
-    return `<tr class="${out}" data-i="${i}">`+COLS.map(c=>{
+    return `<tr data-i="${i}">`+COLS.map(c=>{
       let v=c[2](r);
       if(c[0]==="set_name") v=`<span class="dot" style="background:${gameColor(r.game)}"></span>${v}`;
       if(c[0]==="roi"&&r.roi!=null){const h=Math.min(120,Math.max(0,r.roi*80));v=`<span style="color:hsl(${h},70%,35%);font-weight:600">${v}</span>`;}
@@ -432,22 +433,18 @@ function render(){
 function stat(k,v,s){return `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;}
 
 const threshPlugin={id:"thresh",afterDraw(c){
-  const {ctx,chartArea:a,scales:{x,y}}=c; if(!a)return;
-  ctx.save();ctx.lineWidth=1;
-  const hline=(val,color)=>{const py=y.getPixelForValue(val); if(py>=a.top&&py<=a.bottom){ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(a.left,py);ctx.lineTo(a.right,py);ctx.stroke();}};
-  const vline=(val,color)=>{const px=x.getPixelForValue(val); if(px>=a.left&&px<=a.right){ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}};
-  ctx.setLineDash([5,4]); hline(st.roiT,"rgba(120,130,150,.7)");        // outlier ROI line (horizontal)
-  if(st.profMin>0){ ctx.setLineDash([2,3]); vline(st.profMin,"rgba(209,67,91,.55)"); } // min-profit line (vertical)
-  ctx.restore();
+  const {ctx,chartArea:a,scales:{x}}=c; if(!a)return;
+  if(st.profMin>0){ ctx.save();ctx.setLineDash([2,3]);ctx.strokeStyle="rgba(209,67,91,.55)";ctx.lineWidth=1;
+    const px=x.getPixelForValue(st.profMin); if(px>=a.left&&px<=a.right){ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();} ctx.restore(); }
 }};
 
 function drawChart(rows){
   const pts=rows.filter(r=>r.priced);
-  const mk=r=>({x:r.profit,y:r.roi*100,r:isOut(r)?6:3,_r:r});
+  const mk=r=>({x:r.profit,y:r.roi*100,r:dotR(r),_r:r});
   const byg={};
   pts.forEach(r=>{(byg[r.game]=byg[r.game]||[]).push(mk(r));});
   const ds=Object.keys(byg).map(g=>({label:g,data:byg[g],
-    backgroundColor:byg[g].map(p=>isOut(p._r)?gameColor(g):hexA(gameColor(g),.35)),
+    backgroundColor:hexA(gameColor(g),.5),
     borderColor:gameColor(g),pointRadius:byg[g].map(p=>p.r),pointHoverRadius:8}));
   const cfg={type:"scatter",data:{datasets:ds},plugins:[threshPlugin],options:{
     responsive:true,maintainAspectRatio:false,
@@ -467,13 +464,11 @@ function hexA(hex,a){const h=hex.replace('#','');const n=parseInt(h.length===3?h
 
 // ---- wire controls ----
 function syncControls(){
-  document.getElementById("roiT").value=st.roiT;
   document.getElementById("profMin").value=st.profMin;
   document.getElementById("volT").value=st.volT;
-  document.getElementById("favOnly").checked=st.favOnly;
   document.getElementById("q").value=st.q;
   document.getElementById("liq").checked=st.liq;
-  document.getElementById("outOnly").checked=st.outOnly;
+  document.getElementById("lowConfHide").checked=st.lowConfHide;
   document.getElementById("hideUn").checked=st.hideUn;
   document.getElementById("rawMin").value=st.rawMin??"";
   document.getElementById("rawMax").value=st.rawMax??"";
@@ -502,17 +497,15 @@ function buildSetOptions(){
 }
 function bind(){
   const on=(id,ev,fn)=>document.getElementById(id).addEventListener(ev,fn);
-  on("roiT","input",e=>{st.roiT=+e.target.value||0;save();render();});
   on("profMin","input",e=>{st.profMin=+e.target.value||0;save();render();});
   on("volT","input",e=>{st.volT=+e.target.value||0;save();render();});
-  on("favOnly","change",e=>{st.favOnly=e.target.checked;save();render();});
+  on("lowConfHide","change",e=>{st.lowConfHide=e.target.checked;save();render();});
   on("rawMin","input",e=>{st.rawMin=numOrNull(e.target.value);save();render();});
   on("rawMax","input",e=>{st.rawMax=numOrNull(e.target.value);save();render();});
   on("p10Min","input",e=>{st.p10Min=numOrNull(e.target.value);save();render();});
   on("p10Max","input",e=>{st.p10Max=numOrNull(e.target.value);save();render();});
   on("q","input",e=>{st.q=e.target.value;save();render();});
   on("liq","change",e=>{st.liq=e.target.checked;save();render();});
-  on("outOnly","change",e=>{st.outOnly=e.target.checked;save();render();});
   on("hideUn","change",e=>{st.hideUn=e.target.checked;save();render();});
   on("setSel","change",e=>{st.set=e.target.value;save();render();});
   on("dateSel","change",e=>{st.date=e.target.value;save();loadDate();});
@@ -524,40 +517,49 @@ function afterLoad(subText){
   render();
 }
 
-async function loadDate(){
-  document.getElementById("sub").textContent="Loading "+st.date+"…";
-  const cols="snapshot_date,season,game,set_name,card_number,name,parallel,gems,total,gem_rate,raw,psa9,psa10,volume,source,raw_chg,psa9_chg,psa10_chg,prev_date";
-  const data=await rest(`price_changes?season=eq.${st.season}&snapshot_date=eq.${st.date}&select=${cols}&order=total.desc&limit=6000`);
-  RAW=data.map(enrich);
-  const prev=RAW.length&&RAW[0].prev_date?(" · vs "+RAW[0].prev_date):"";
-  afterLoad(`${RAW.length} cards · ${st.season} · ${st.date}${prev}`);
-}
+const PCOLS="snapshot_date,season,game,set_name,card_number,name,parallel,lang,pc_console,pc_product,price_confidence,gems,total,gem_rate,raw,psa9,psa10,volume,source,raw_chg,psa9_chg,psa10_chg,prev_date";
+async function seasonLatest(yr){ const d=await rest(`price_snapshots?season=eq.${yr}&select=snapshot_date&order=snapshot_date.desc&limit=1`); return d[0]&&d[0].snapshot_date; }
+async function fetchSeason(yr,date){ return rest(`price_changes?season=eq.${yr}&snapshot_date=eq.${date}&select=${PCOLS}&order=total.desc&limit=6000`); }
 
-function loadStatic2025(){
-  const data=(window.STATIC_2025||[]).slice().sort((a,b)=>(b.total||0)-(a.total||0));
-  RAW=data.map(enrich);
-  afterLoad(`${RAW.length} priced cards · 2025 sets · reference snapshot (not weekly-tracked)`);
-}
-
-async function ensureDates(){
+async function ensureDates(yr){
   const dsel=document.getElementById("dateSel");
-  const draw=await rest(`price_snapshots?season=eq.${st.season}&select=snapshot_date&order=snapshot_date.desc&limit=100000`);
+  const draw=await rest(`price_snapshots?season=eq.${yr}&select=snapshot_date&order=snapshot_date.desc&limit=100000`);
   const dates=[...new Set(draw.map(r=>r.snapshot_date))];
   dsel.innerHTML=dates.map(d=>`<option value="${d}">${d}</option>`).join("");
   if(!dates.includes(st.date)) st.date=dates[0]||null;
   dsel.value=st.date; save();
 }
+async function loadDate(){
+  if(st.seasons.length!==1) return loadSeason();
+  const data=await fetchSeason(st.seasons[0], st.date);
+  RAW=data.map(enrich); buildGameChips(); buildSetOptions();
+  document.getElementById("sub").textContent=`${RAW.length} cards · ${st.seasons[0]} · ${st.date||"—"}`;
+  render();
+}
 async function loadSeason(){
-  document.getElementById("dateSel").parentElement.style.display="";
-  await ensureDates();
-  if(!st.date){ RAW=[]; buildGameChips(); buildSetOptions(); document.getElementById("sub").textContent=`No data yet for ${st.season}.`; render(); return; }
-  await loadDate();
+  const dwrap=document.getElementById("dateSel").parentElement;
+  const single=st.seasons.length===1;
+  dwrap.style.display=single?"":"none";
+  let all=[];
+  if(single){
+    const yr=st.seasons[0];
+    await ensureDates(yr);
+    if(st.date) all=await fetchSeason(yr, st.date);
+  } else {
+    for(const yr of st.seasons){ const dt=await seasonLatest(yr); if(dt) all=all.concat(await fetchSeason(yr, dt)); }
+  }
+  RAW=all.map(enrich); buildGameChips(); buildSetOptions();
+  document.getElementById("sub").textContent=`${RAW.length} cards · ${st.seasons.join(" + ")}`+(single&&st.date?` · ${st.date}`:"");
+  render();
 }
 
 function buildSeasonChips(){
   document.querySelectorAll("#seasons .chip").forEach(c=>{
-    c.classList.toggle("on", c.dataset.season===st.season);
-    c.onclick=async()=>{ st.season=c.dataset.season; st.set="__all"; save(); buildSeasonChips();
+    c.classList.toggle("on", st.seasons.includes(c.dataset.season));
+    c.onclick=async()=>{ const y=c.dataset.season;
+      if(st.seasons.includes(y)){ if(st.seasons.length>1) st.seasons=st.seasons.filter(x=>x!==y); }
+      else st.seasons.push(y);
+      st.set="__all"; save(); buildSeasonChips();
       try{ await loadSeason(); }catch(e){ document.getElementById("sub").innerHTML=`<span class="err">${e.message}</span>`; } };
   });
 }
@@ -606,6 +608,7 @@ function openCard(r){
       ${rowKV("ROI", r.roi==null?"—":Math.round(r.roi*100)+"%")}
       ${rowKV("Volume", num(r.volume)==null?"—":num(r.volume))}
     </div>
+    ${r.pc_product?`<div class="prov"><span class="langbadge ${(r.lang||'')}">${(r.lang||'?').toUpperCase()}</span> Priced from <b>${r.pc_console||''}</b> · ${r.pc_product} ${r.price_confidence==='low'?'<span class="lowc">⚠ low-confidence match — verify</span>':'<span class="okc">✓ number-matched</span>'}</div>`:(r.p10!=null?'<div class="prov muted">Source not recorded yet (re-price pending).</div>':'')}
     ${trackHtml}
     <div class="note">Open eBay listings (with photos) in your browser:</div>
     ${btn("psa10","Sold — PSA 10","completed sales")}
@@ -626,8 +629,24 @@ function openCard(r){
 function closeSide(){ document.getElementById("ov").classList.remove("on"); document.getElementById("side").classList.remove("on"); }
 
 // ---- Purchased view ----
-let PURCH=[];
+let PURCH=[], FAVVIEW=[];
 function closePurchases(){ document.getElementById("pov").classList.remove("on"); document.getElementById("pmodal").classList.remove("on"); }
+function closeFav(){ document.getElementById("fov").classList.remove("on"); document.getElementById("fmodal").classList.remove("on"); }
+function openFavorites(){
+  document.getElementById("fov").classList.add("on"); document.getElementById("fmodal").classList.add("on");
+  const body=document.getElementById("fbody");
+  const favs=RAW.filter(isFav);
+  if(!favs.length){ body.innerHTML='<p class="note">No favorites yet — tap the ☆ star on any card. Favorites ignore the filters; select both year chips to see all of them.</p>'; return; }
+  favs.sort((a,b)=>((b.profit==null?-1e9:b.profit)-(a.profit==null?-1e9:a.profit)));
+  FAVVIEW=favs;
+  const m=v=>v==null?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  let h='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Raw</th><th>PSA 9</th><th>PSA 10</th><th>Est. Profit</th><th>ROI</th></tr></thead><tbody>';
+  favs.forEach((r,i)=>{ h+=`<tr data-fi="${i}"><td>${r.name||""} <span class="muted">${r.parallel||""}</span></td><td>${shortSet(r.set_name)}</td><td>${r.card_number||"—"}</td><td>${m(r.raw)}</td><td>${m(r.p9)}</td><td>${m(r.p10)}</td><td>${r.profit==null?"—":m(r.profit)}</td><td>${r.roi==null?"—":Math.round(r.roi*100)+"%"}</td></tr>`; });
+  h+='</tbody></table></div>';
+  body.innerHTML=h;
+  const tb=body.querySelector("tbody");
+  if(tb) tb.addEventListener("click",e=>{const tr=e.target.closest("tr[data-fi]"); if(tr){ closeFav(); openCard(FAVVIEW[+tr.dataset.fi]); }});
+}
 async function openPurchases(){
   document.getElementById("pov").classList.add("on");
   document.getElementById("pmodal").classList.add("on");
@@ -670,7 +689,7 @@ async function openPurchasedCard(p){
   if(!r){
     try{
       const enc=encodeURIComponent;
-      const cols="game,set_name,card_number,name,parallel,gems,total,gem_rate,raw,psa9,psa10,volume,psa10_chg";
+      const cols="game,set_name,card_number,name,parallel,lang,pc_console,pc_product,price_confidence,gems,total,gem_rate,raw,psa9,psa10,volume,psa10_chg";
       const q=`price_changes?game=eq.${enc(p.game)}&set_name=eq.${enc(p.set_name)}&card_number=eq.${enc(p.card_number||"")}&parallel=eq.${enc(p.parallel||"")}&select=${cols}&order=snapshot_date.desc&limit=1`;
       const d=await rest(q); if(d&&d[0]) r=enrich(d[0]);
     }catch(e){}
@@ -757,6 +776,9 @@ async function boot(){
     document.getElementById("pClose").onclick=closePurchases;
     document.getElementById("pov").onclick=closePurchases;
     document.getElementById("addPurchaseBtn").onclick=openAddForm;
+    document.getElementById("favBtnTop").onclick=openFavorites;
+    document.getElementById("fClose").onclick=closeFav;
+    document.getElementById("fov").onclick=closeFav;
     document.querySelector("#tbl tbody").addEventListener("click",e=>{
       const tr=e.target.closest("tr[data-i]"); if(!tr) return;
       const r=VIEW[+tr.dataset.i]; if(!r) return;
