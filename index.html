@@ -117,6 +117,16 @@ tr.out:hover td{background:#dff0e4}
 .pbody{padding:14px 16px;overflow:auto}
 .psum{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:12px;font-weight:600}
 .ptbl th{position:sticky;top:0}
+.phdr{display:flex;gap:8px;align-items:center}
+#pmodal tbody tr{cursor:pointer}
+#pmodal tbody tr:hover td{background:#eef3ff}
+.addform{padding:12px 16px;border-bottom:1px solid var(--line);background:#fafbff}
+.addform .ain2{padding:7px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+.addform #acard,.addform #abulktext{width:100%;margin-bottom:4px}
+.addform .arow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center}
+.amode{display:flex;gap:6px;margin-bottom:10px}
+.amode button{padding:5px 12px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer;font-size:12px}
+.amode button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -131,7 +141,7 @@ tr.out:hover td{background:#dff0e4}
     <button id="purchasedBtn" class="pbtn">📦 Purchased</button>
   </div>
   <div id="pov" class="povl"></div>
-  <div id="pmodal"><header><h2>📦 Purchased cards</h2><button class="close" id="pClose">×</button></header><div class="pbody" id="pbody"></div></div>
+  <div id="pmodal"><header><h2>📦 Purchased cards</h2><div class="phdr"><button id="addPurchaseBtn" class="pbtn">➕ Add</button><button class="close" id="pClose">×</button></div></header><div class="addform" id="addForm" style="display:none"></div><div class="pbody" id="pbody"></div></div>
 
   <div class="stats" id="stats"></div>
 
@@ -616,6 +626,7 @@ function openCard(r){
 function closeSide(){ document.getElementById("ov").classList.remove("on"); document.getElementById("side").classList.remove("on"); }
 
 // ---- Purchased view ----
+let PURCH=[];
 function closePurchases(){ document.getElementById("pov").classList.remove("on"); document.getElementById("pmodal").classList.remove("on"); }
 async function openPurchases(){
   document.getElementById("pov").classList.add("on");
@@ -635,17 +646,106 @@ function renderPurchases(rows){
   if(!rows.length){ body.innerHTML='<p class="note">No purchased cards yet. eBay buys are matched and appear here automatically.</p>'; return; }
   rows.forEach(r=>{ r.paidN=+r.paid||0; r.profitN=(r.est_profit==null?null:+r.est_profit); r.roiN=(r.paidN>0&&r.profitN!=null)?r.profitN/r.paidN:null; });
   rows.sort((a,b)=>String(b.txn_date||"").localeCompare(String(a.txn_date||"")));
+  PURCH=rows;
   const spent=rows.reduce((s,r)=>s+r.paidN,0);
   const proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
   let h=`<div class="psum"><span>${rows.length} cards</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Purchased</th><th>Card</th><th>Set</th><th>#</th><th>Paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th></tr></thead><tbody>';
-  rows.forEach(r=>{
+  rows.forEach((r,i)=>{
     const roi=r.roiN==null?"—":`<span class="${r.roiN>=0?'pos':'neg'}">${Math.round(r.roiN*100)}%</span>`;
     const prof=r.profitN==null?"—":`<span class="${r.profitN>=0?'pos':'neg'}">${m(r.profitN)}</span>`;
-    h+=`<tr><td>${r.txn_date||"—"}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${m(r.paidN)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td></tr>`;
+    h+=`<tr data-pi="${i}"><td>${r.txn_date||"—"}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${m(r.paidN)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td></tr>`;
   });
   h+='</tbody></table></div>';
   body.innerHTML=h;
+  const tb=body.querySelector("tbody");
+  if(tb) tb.addEventListener("click",e=>{ const tr=e.target.closest("tr[data-pi]"); if(tr) openPurchasedCard(PURCH[+tr.dataset.pi]); });
+}
+
+// ---- click a purchased row -> open the card sidebar ----
+async function openPurchasedCard(p){
+  if(!p) return;
+  const key=[p.game,p.set_name,p.card_number,p.parallel].join("¦");
+  let r=RAW.find(x=>keyOf(x)===key);
+  if(!r){
+    try{
+      const enc=encodeURIComponent;
+      const cols="game,set_name,card_number,name,parallel,gems,total,gem_rate,raw,psa9,psa10,volume,psa10_chg";
+      const q=`price_changes?game=eq.${enc(p.game)}&set_name=eq.${enc(p.set_name)}&card_number=eq.${enc(p.card_number||"")}&parallel=eq.${enc(p.parallel||"")}&select=${cols}&order=snapshot_date.desc&limit=1`;
+      const d=await rest(q); if(d&&d[0]) r=enrich(d[0]);
+    }catch(e){}
+    if(!r) r=enrich({game:p.game,set_name:p.set_name,card_number:p.card_number,parallel:p.parallel,name:p.name,gem_rate:p.gem_rate,psa9:p.psa9,psa10:p.psa10});
+  }
+  closePurchases(); openCard(r);
+}
+
+// ---- manually add a purchase (single / bulk) ----
+let ADDMODE="single";
+function openAddForm(){
+  const f=document.getElementById("addForm");
+  if(f.style.display!=="none"){ f.style.display="none"; return; }
+  f.style.display="block"; buildAddForm();
+}
+function buildAddForm(){
+  const f=document.getElementById("addForm");
+  const today=new Date().toISOString().slice(0,10);
+  const opts=RAW.map(c=>`<option value="${(c.name+" "+(c.parallel||"")+" #"+c.card_number).replace(/"/g,"&quot;")}"></option>`).join("");
+  f.innerHTML=`
+    <div class="amode"><button class="${ADDMODE==="single"?"on":""}" data-m="single">Single</button><button class="${ADDMODE==="bulk"?"on":""}" data-m="bulk">Bulk</button></div>
+    <div id="asingle" style="${ADDMODE==="single"?"":"display:none"}">
+      <input id="acard" list="acardlist" placeholder="Search card in current season…" class="ain2">
+      <datalist id="acardlist">${opts}</datalist>
+      <div class="arow"><input id="aprice" type="number" placeholder="Paid $" class="ain2" style="width:110px"><input id="adate" type="date" value="${today}" class="ain2"><input id="aqty" type="number" value="1" min="1" class="ain2" style="width:70px"><button id="aadd" class="pbtn">Add</button></div>
+    </div>
+    <div id="abulk" style="${ADDMODE==="bulk"?"":"display:none"}">
+      <textarea id="abulktext" class="ain2" rows="5" placeholder="One per line:  card search | price | yyyy-mm-dd&#10;e.g.  Mega Gengar 269 | 71 | 2026-07-01"></textarea>
+      <div class="arow"><button id="abulkadd" class="pbtn">Add all</button></div>
+    </div>
+    <div id="astatus" class="note"></div>`;
+  f.querySelectorAll(".amode button").forEach(b=>b.onclick=()=>{ADDMODE=b.dataset.m;buildAddForm();});
+  const a=document.getElementById("aadd"); if(a) a.onclick=addSingle;
+  const bb=document.getElementById("abulkadd"); if(bb) bb.onclick=addBulk;
+}
+function findCard(term){
+  term=(term||"").trim().toLowerCase(); if(!term) return null;
+  let c=RAW.find(x=>((x.name+" "+(x.parallel||"")+" #"+x.card_number).toLowerCase())===term);
+  if(c) return c;
+  const toks=term.split(/[\s|]+/).filter(Boolean);
+  const cands=RAW.filter(x=>{const s=(x.name+" "+(x.parallel||"")+" "+x.card_number).toLowerCase(); return toks.every(t=>s.includes(t));});
+  return cands.length?cands[0]:null;
+}
+async function addPurchase(card, price, date, qty){
+  const title=`${card.name} ${card.parallel||""} #${card.card_number} (manual)`.replace(/\s+/g," ").trim();
+  const {error}=await sb.from("card_transactions").insert({user_id:SESSION.user.id,type:"buy",txn_date:date||null,
+    price:(price!=null&&price!=="")?+price:null,item_title:title,ebay_order_id:null,email_id:null,
+    game:card.game,set_name:card.set_name,card_number:card.card_number,parallel:card.parallel,matched:true,confidence:"manual"});
+  if(error) throw new Error(error.message);
+  const k=keyOf(card); const t=TRACK[k]||{qty:0,stage:""}; t.qty=(t.qty||0)+(+qty||1); t.stage="purchased"; TRACK[k]=t; saveTrack();
+  await syncCard(card);
+}
+async function addSingle(){
+  const st=document.getElementById("astatus");
+  const card=findCard(document.getElementById("acard").value);
+  if(!card){ st.innerHTML='<span class="err">No matching card in the current season — switch season or refine.</span>'; return; }
+  try{
+    await addPurchase(card, document.getElementById("aprice").value, document.getElementById("adate").value, document.getElementById("aqty").value);
+    document.getElementById("acard").value=""; document.getElementById("aprice").value="";
+    st.innerHTML='<span class="pos">Added '+card.name+'.</span>';
+    openPurchases();
+  }catch(e){ st.innerHTML='<span class="err">'+e.message+'</span>'; }
+}
+async function addBulk(){
+  const st=document.getElementById("astatus");
+  const lines=document.getElementById("abulktext").value.split("\n").map(l=>l.trim()).filter(Boolean);
+  let ok=0; const bad=[];
+  for(const line of lines){
+    const p=line.split("|").map(s=>s.trim());
+    const card=findCard(p[0]);
+    if(!card){ bad.push(p[0]); continue; }
+    try{ await addPurchase(card, p[1], p[2], 1); ok++; }catch(e){ bad.push(p[0]); }
+  }
+  st.innerHTML=`<span class="pos">Added ${ok}.</span>`+(bad.length?` <span class="err">No match: ${bad.join("; ")}</span>`:"");
+  if(ok) openPurchases();
 }
 
 async function boot(){
@@ -656,6 +756,7 @@ async function boot(){
     document.getElementById("purchasedBtn").onclick=openPurchases;
     document.getElementById("pClose").onclick=closePurchases;
     document.getElementById("pov").onclick=closePurchases;
+    document.getElementById("addPurchaseBtn").onclick=openAddForm;
     document.querySelector("#tbl tbody").addEventListener("click",e=>{
       const tr=e.target.closest("tr[data-i]"); if(!tr) return;
       const r=VIEW[+tr.dataset.i]; if(!r) return;
