@@ -132,6 +132,9 @@ tr.out:hover td{background:#dff0e4}
 .langbadge.jp{background:#ffe9e9;color:#c0392b}
 .lowc{color:#c98a00;font-weight:600}
 .okc{color:var(--good)}
+.ebtn.inacon{background:#fdeaea;border-color:#e6b3b3;color:#c0392b;justify-content:center}
+.dcbox{border:1px solid var(--line);border-radius:9px;padding:10px;margin:6px 0 8px;background:#f7f9fd}
+.dcbox .arow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
 </style>
 </head>
 <body>
@@ -191,6 +194,7 @@ tr.out:hover td{background:#dff0e4}
     <div class="toggles" style="margin-top:6px">
       <label class="tg"><input type="checkbox" id="liq" checked> Liquidity filter (PSA10 ≤ 5×PSA9)</label>
       <label class="tg"><input type="checkbox" id="lowConfHide"> Hide low-confidence prices</label>
+      <label class="tg"><input type="checkbox" id="hideInac"> Hide inaccurate-tagged</label>
       <label class="tg"><input type="checkbox" id="hideUn" checked> Hide unpriced</label>
     </div>
   </div>
@@ -265,7 +269,7 @@ let VIEW=[];           // currently rendered (filtered/sorted) rows
 let chart=null;
 let sortKey="score", sortDir=-1;
 
-const st = Object.assign({seasons:["2026"],games:[],set:"__all",q:"",profMin:0,volT:0,liq:true,hideUn:true,lowConfHide:false,date:null,
+const st = Object.assign({seasons:["2026"],games:[],set:"__all",q:"",profMin:0,volT:0,liq:true,hideUn:true,lowConfHide:false,hideInac:false,date:null,
   rawMin:null,rawMax:null,p10Min:null,p10Max:null},
   JSON.parse(localStorage.getItem(LS)||"{}"));
 function save(){localStorage.setItem(LS, JSON.stringify(st));}
@@ -283,17 +287,21 @@ const stageLabel=s=>{const i=stageIdx(s);return i<0?"":STAGES[i][1];};
 const isFav=r=>!!FAV[keyOf(r)];
 const trackOf=r=>TRACK[keyOf(r)]||null;
 function toggleFav(r){const k=keyOf(r); if(FAV[k]) delete FAV[k]; else FAV[k]=true; saveFav(); syncCard(r);}
+const IKEY="voltdash.inac"; let INAC=JSON.parse(localStorage.getItem(IKEY)||"{}");
+function saveInac(){localStorage.setItem(IKEY,JSON.stringify(INAC));}
+const isInac=r=>!!INAC[keyOf(r)];
+function toggleInac(r){const k=keyOf(r); if(INAC[k]) delete INAC[k]; else INAC[k]=true; saveInac(); syncCard(r);}
 function setQty(r,q){const k=keyOf(r); const t=TRACK[k]||{qty:0,stage:""}; t.qty=Math.max(0,q||0);
   if(!t.qty&&!t.stage) delete TRACK[k]; else TRACK[k]=t; saveTrack(); syncCard(r);}
 function setStage(r,s){const k=keyOf(r); const t=TRACK[k]||{qty:0,stage:""}; t.stage=(t.stage===s)?"":s;
   if(!t.qty&&!t.stage) delete TRACK[k]; else TRACK[k]=t; saveTrack(); syncCard(r);}
 async function syncCard(r){
   if(!sb||!SESSION) return;
-  const t=TRACK[keyOf(r)]||{qty:0,stage:""}; const fav=!!FAV[keyOf(r)];
+  const t=TRACK[keyOf(r)]||{qty:0,stage:""}; const fav=!!FAV[keyOf(r)]; const inac=!!INAC[keyOf(r)];
   const m={user_id:SESSION.user.id, game:r.game, set_name:r.set_name, card_number:r.card_number, parallel:r.parallel};
   try{
-    if(!t.qty && !t.stage && !fav){ await sb.from("card_tracking").delete().match(m); }
-    else { await sb.from("card_tracking").upsert(Object.assign({}, m, {qty:t.qty||0, stage:t.stage||"", favorite:fav}), {onConflict:"user_id,game,set_name,card_number,parallel"}); }
+    if(!t.qty && !t.stage && !fav && !inac){ await sb.from("card_tracking").delete().match(m); }
+    else { await sb.from("card_tracking").upsert(Object.assign({}, m, {qty:t.qty||0, stage:t.stage||"", favorite:fav, inaccurate:inac}), {onConflict:"user_id,game,set_name,card_number,parallel"}); }
   }catch(e){ console.warn("sync failed", e); }
 }
 async function loadTracking(){
@@ -301,10 +309,10 @@ async function loadTracking(){
   try{
     const {data,error}=await sb.from("card_tracking").select("*");
     if(error){ console.warn(error); return; }
-    TRACK={}; FAV={};
+    TRACK={}; FAV={}; INAC={};
     (data||[]).forEach(d=>{ const k=[d.game,d.set_name,d.card_number,d.parallel].join("\u00a6");
-      if(d.qty||d.stage) TRACK[k]={qty:d.qty||0,stage:d.stage||""}; if(d.favorite) FAV[k]=true; });
-    saveTrack(); saveFav(); render();
+      if(d.qty||d.stage) TRACK[k]={qty:d.qty||0,stage:d.stage||""}; if(d.favorite) FAV[k]=true; if(d.inaccurate) INAC[k]=true; });
+    saveTrack(); saveFav(); saveInac(); render();
   }catch(e){}
 }
 function renderAuth(){
@@ -350,6 +358,7 @@ function filtered(){
     if(st.hideUn && !x.priced) return false;
     if(st.liq && x.priced && !x.liqOk) return false;
     if(st.lowConfHide && x.price_confidence==="low") return false;
+    if(st.hideInac && isInac(x)) return false;
     if(num(x.volume)!=null && num(x.volume) < st.volT) return false;
     if(st.rawMin!=null){ if(x.raw==null || x.raw < st.rawMin) return false; }
     if(st.rawMax!=null){ if(x.raw==null || x.raw > st.rawMax) return false; }
@@ -469,6 +478,7 @@ function syncControls(){
   document.getElementById("q").value=st.q;
   document.getElementById("liq").checked=st.liq;
   document.getElementById("lowConfHide").checked=st.lowConfHide;
+  document.getElementById("hideInac").checked=st.hideInac;
   document.getElementById("hideUn").checked=st.hideUn;
   document.getElementById("rawMin").value=st.rawMin??"";
   document.getElementById("rawMax").value=st.rawMax??"";
@@ -500,6 +510,7 @@ function bind(){
   on("profMin","input",e=>{st.profMin=+e.target.value||0;save();render();});
   on("volT","input",e=>{st.volT=+e.target.value||0;save();render();});
   on("lowConfHide","change",e=>{st.lowConfHide=e.target.checked;save();render();});
+  on("hideInac","change",e=>{st.hideInac=e.target.checked;save();render();});
   on("rawMin","input",e=>{st.rawMin=numOrNull(e.target.value);save();render();});
   on("rawMax","input",e=>{st.rawMax=numOrNull(e.target.value);save();render();});
   on("p10Min","input",e=>{st.p10Min=numOrNull(e.target.value);save();render();});
@@ -615,6 +626,12 @@ function openCard(r){
     ${btn("psa9","Sold — PSA 9","completed sales")}
     ${btn("raw","Sold — Raw","ungraded")}
     ${btn("active","Active listings","currently for sale")}
+    <div class="track">
+      <h3>Verify price</h3>
+      <button class="ebtn" id="dcBtn">🔍 Double Check on eBay (Gemini · sold comps)</button>
+      <div id="dcResult"></div>
+      <button class="ebtn${isInac(r)?" inacon":""}" id="inacBtn">${isInac(r)?"⚠ Marked inaccurate — undo":"⚠ Mark price inaccurate"}</button>
+    </div>
   `;
   const refresh=()=>{ render(); openCard(r); };
   document.getElementById("favBtn").onclick=()=>{ toggleFav(r); refresh(); };
@@ -623,10 +640,47 @@ function openCard(r){
   document.getElementById("qtyIn").onchange=e=>{ setQty(r,parseInt(e.target.value)||0); refresh(); };
   document.getElementById("stages").querySelectorAll(".stage").forEach(b=>b.onclick=()=>{ setStage(r,b.dataset.s); refresh(); });
   const clr=document.getElementById("clrTrack"); if(clr) clr.onclick=()=>{ delete TRACK[keyOf(r)]; saveTrack(); syncCard(r); refresh(); };
+  document.getElementById("inacBtn").onclick=()=>{ toggleInac(r); refresh(); };
+  document.getElementById("dcBtn").onclick=()=>doubleCheck(r);
   document.getElementById("ov").classList.add("on");
   document.getElementById("side").classList.add("on");
 }
 function closeSide(){ document.getElementById("ov").classList.remove("on"); document.getElementById("side").classList.remove("on"); }
+const cardMin=r=>({game:r.game,set_name:r.set_name,card_number:r.card_number,parallel:r.parallel,name:r.name});
+async function doubleCheck(r){
+  const el=document.getElementById("dcResult");
+  if(!sb||!SESSION){ el.innerHTML='<div class="note err">Sign in (top-right) to use Double Check.</div>'; return; }
+  el.innerHTML='<div class="note">Searching recent eBay sold via Gemini… (a few seconds)</div>';
+  try{
+    const {data,error}=await sb.functions.invoke("double-check",{body:{action:"lookup",card:cardMin(r)}});
+    if(error) throw new Error(error.message||"lookup failed");
+    if(data && data.error) throw new Error(data.error);
+    const p=data||{};
+    el.innerHTML=`<div class="dcbox">
+      <div class="note">eBay sold — PSA 10: <b>${p.psa10!=null?"$"+p.psa10:"—"}</b> (${p.psa10_n||0} comps) · Raw: <b>${p.raw!=null?"$"+p.raw:"—"}</b> (${p.raw_n||0} comps)</div>
+      <div class="note">${(p.notes||"").replace(/</g,"&lt;")}</div>
+      <div class="arow"><label class="muted">PSA10 $ <input id="dcP10" type="number" value="${p.psa10??""}" class="ain2" style="width:90px"></label>
+        <label class="muted">Raw $ <input id="dcRaw" type="number" value="${p.raw??""}" class="ain2" style="width:90px"></label>
+        <button class="ebtn primary" id="dcApply" style="width:auto">Update &amp; lock</button></div>
+      <div class="note" id="dcStatus"></div></div>`;
+    document.getElementById("dcApply").onclick=()=>applyDoubleCheck(r);
+  }catch(e){ el.innerHTML='<div class="note err">'+(e.message||e)+'</div>'; }
+}
+async function applyDoubleCheck(r){
+  const s=document.getElementById("dcStatus");
+  const psa10=document.getElementById("dcP10").value, raw=document.getElementById("dcRaw").value;
+  s.textContent="Saving…";
+  try{
+    const {data,error}=await sb.functions.invoke("double-check",{body:{action:"apply",card:cardMin(r),prices:{psa10,raw}}});
+    if(error) throw new Error(error.message||"save failed");
+    if(data && data.error) throw new Error(data.error);
+    if(raw!=="") r.raw=+raw; if(psa10!=="") { r.psa10=+psa10; }
+    r.price_confidence="manual"; r.pc_console="eBay"; r.pc_product="Double Check (manual)";
+    Object.assign(r, enrich(r));
+    s.innerHTML='<span class="pos">Saved &amp; locked — the weekly job won\'t override it.</span>';
+    render();
+  }catch(e){ s.innerHTML='<span class="err">'+(e.message||e)+'</span>'; }
+}
 
 // ---- Purchased view ----
 let PURCH=[], FAVVIEW=[];
