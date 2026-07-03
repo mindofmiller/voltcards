@@ -724,6 +724,28 @@ function listingUrl(title){
   const t=(title||"").replace(/\(manual\)/i,"").replace(/#\S+/,"").replace(/\s+/g," ").trim();
   return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(t)+"&_sacat=0&LH_Complete=1&LH_Sold=1";
 }
+// drag-to-resize table columns (adds a grab handle to each header cell)
+function makeResizable(table){
+  if(!table) return;
+  if(!document.getElementById("colresize-css")){
+    const s=document.createElement("style"); s.id="colresize-css";
+    s.textContent=".colresize{position:absolute;top:0;right:0;width:9px;height:100%;cursor:col-resize;user-select:none;z-index:2}.colresize:hover{background:rgba(90,110,255,.35)}";
+    document.head.appendChild(s);
+  }
+  const ths=[...table.querySelectorAll("thead th")];
+  const widths=ths.map(th=>th.offsetWidth);
+  table.style.tableLayout="fixed";
+  table.style.width=widths.reduce((a,b)=>a+b,0)+"px";
+  ths.forEach((th,i)=>{
+    th.style.width=widths[i]+"px"; th.style.position="relative"; th.style.overflow="hidden";
+    const h=document.createElement("div"); h.className="colresize"; th.appendChild(h);
+    let sx,sw;
+    const mm=ev=>{ th.style.width=Math.max(40,sw+(ev.pageX-sx))+"px"; };
+    const mu=()=>{ document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); document.body.style.cursor=""; };
+    h.addEventListener("mousedown",e=>{ sx=e.pageX; sw=th.offsetWidth; document.body.style.cursor="col-resize"; e.preventDefault(); e.stopPropagation(); document.addEventListener("mousemove",mm); document.addEventListener("mouseup",mu); });
+    h.addEventListener("click",e=>e.stopPropagation());
+  });
+}
 function renderPurchases(rows){
   const body=document.getElementById("pbody");
   const m=v=>v==null||v===""?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -749,7 +771,11 @@ function renderPurchases(rows){
   const spent=rows.reduce((s,r)=>s+r.paidN,0);
   const proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
   let h=`<div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
+  const totQty=groups.reduce((s,g)=>s+g.qty,0);
+  const totPSA10=groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0);
+  const totRoi=spent>0?proj/spent:null;
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th></th><th>Card</th><th>Set</th><th>#</th><th>First bought</th><th>Qty</th><th>Avg paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th><th>Listing</th></tr></thead><tbody>';
+  h+=`<tr class="ptot" style="font-weight:600;background:#eef1fb"><td></td><td>TOTALS <span class="muted">(${groups.length} unique)</span></td><td></td><td></td><td></td><td>${totQty}</td><td>${m(spent)}</td><td>${m(totPSA10)}</td><td class="${proj>=0?'pos':'neg'}">${m(proj)}</td><td class="${(totRoi||0)>=0?'pos':'neg'}">${totRoi==null?'—':Math.round(totRoi*100)+'%'}</td><td></td></tr>`;
   groups.forEach((g,gi)=>{
     const r=g.rep;
     const roi=g.roi==null?"—":`<span class="${g.roi>=0?'pos':'neg'}">${Math.round(g.roi*100)}%</span>`;
@@ -762,6 +788,7 @@ function renderPurchases(rows){
   });
   h+='</tbody></table></div>';
   body.innerHTML=h;
+  makeResizable(body.querySelector("table.ptbl"));
   const tb=body.querySelector("tbody");
   if(tb) tb.addEventListener("click",e=>{
     if(e.target.closest("a")) return;                 // let Listing links through
