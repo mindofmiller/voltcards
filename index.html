@@ -686,20 +686,37 @@ async function applyDoubleCheck(r){
 let PURCH=[], FAVVIEW=[];
 function closePurchases(){ document.getElementById("pov").classList.remove("on"); document.getElementById("pmodal").classList.remove("on"); }
 function closeFav(){ document.getElementById("fov").classList.remove("on"); document.getElementById("fmodal").classList.remove("on"); }
-function openFavorites(){
+function ebayNewUrl(r,grade){
+  let kw=[r.name,r.parallel,r.card_number].filter(Boolean).join(" ").replace(/\(EN\)/gi,"").trim();
+  kw += grade==="psa10" ? " PSA 10" : " -PSA -BGS -CGC";
+  return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(kw)+"&_sop=10&LH_BIN=1";
+}
+async function openFavorites(){
   document.getElementById("fov").classList.add("on"); document.getElementById("fmodal").classList.add("on");
   const body=document.getElementById("fbody");
   const favs=RAW.filter(isFav);
   if(!favs.length){ body.innerHTML='<p class="note">No favorites yet — tap the ☆ star on any card. Favorites ignore the filters; select both year chips to see all of them.</p>'; return; }
+  body.innerHTML='<p class="note">Loading new-listing counts…</p>';
+  const counts={};
+  try{
+    const since=new Date(Date.now()-24*3600*1000).toISOString();
+    const rows=await rest(`ebay_listings?first_seen=gte.${since}&select=game,set_name,card_number,parallel,grade,first_seen&limit=100000`);
+    const s6=Date.now()-6*3600*1000;
+    (rows||[]).forEach(x=>{ const k=[x.game,x.set_name,x.card_number,x.parallel].join("¦")+"|"+x.grade;
+      const c=counts[k]||(counts[k]={d24:0,h6:0}); c.d24++; if(new Date(x.first_seen).getTime()>=s6) c.h6++; });
+  }catch(e){ /* table may not exist yet / no data */ }
   favs.sort((a,b)=>((b.profit==null?-1e9:b.profit)-(a.profit==null?-1e9:a.profit)));
   FAVVIEW=favs;
   const m=v=>v==null?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  let h='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Raw</th><th>PSA 9</th><th>PSA 10</th><th>Est. Profit</th><th>ROI</th></tr></thead><tbody>';
-  favs.forEach((r,i)=>{ h+=`<tr data-fi="${i}"><td>${r.name||""} <span class="muted">${r.parallel||""}</span></td><td>${shortSet(r.set_name)}</td><td>${r.card_number||"—"}</td><td>${m(r.raw)}</td><td>${m(r.p9)}</td><td>${m(r.p10)}</td><td>${r.profit==null?"—":m(r.profit)}</td><td>${r.roi==null?"—":Math.round(r.roi*100)+"%"}</td></tr>`; });
+  const cnt=(r,g)=>counts[keyOf(r)+"|"+g]||{d24:0,h6:0};
+  const cell=(c,r,g)=>`<b>${c.d24}</b> / <b>${c.h6}</b> <a href="${ebayNewUrl(r,g)}" target="_blank" rel="noopener">view</a>`;
+  let h='<div class="note">New listings first seen in the last <b>24h / 6h</b> (Buy It Now, newest first). Counts fill in as the poller runs.</div>';
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Card</th><th>Set</th><th>PSA 10</th><th>Raw</th><th>New PSA 10 (24h/6h)</th><th>New Raw (24h/6h)</th></tr></thead><tbody>';
+  favs.forEach((r,i)=>{ h+=`<tr data-fi="${i}"><td>${r.name||""} <span class="muted">${r.parallel||""}</span></td><td>${shortSet(r.set_name)}</td><td>${m(r.p10)}</td><td>${m(r.raw)}</td><td>${cell(cnt(r,"psa10"),r,"psa10")}</td><td>${cell(cnt(r,"raw"),r,"raw")}</td></tr>`; });
   h+='</tbody></table></div>';
   body.innerHTML=h;
   const tb=body.querySelector("tbody");
-  if(tb) tb.addEventListener("click",e=>{const tr=e.target.closest("tr[data-fi]"); if(tr){ closeFav(); openCard(FAVVIEW[+tr.dataset.fi]); }});
+  if(tb) tb.addEventListener("click",e=>{ if(e.target.closest("a")) return; const tr=e.target.closest("tr[data-fi]"); if(tr){ closeFav(); openCard(FAVVIEW[+tr.dataset.fi]); }});
 }
 async function openPurchases(){
   document.getElementById("pov").classList.add("on");
