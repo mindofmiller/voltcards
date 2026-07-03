@@ -628,7 +628,7 @@ function openCard(r){
     ${btn("active","Active listings","currently for sale")}
     <div class="track">
       <h3>Verify price</h3>
-      <button class="ebtn" id="dcBtn">🔍 Double Check on eBay (Gemini · sold comps)</button>
+      <button class="ebtn" id="dcBtn">🔍 Double Check on eBay (sold comps)</button>
       <div id="dcResult"></div>
       <button class="ebtn${isInac(r)?" inacon":""}" id="inacBtn">${isInac(r)?"⚠ Marked inaccurate — undo":"⚠ Mark price inaccurate"}</button>
     </div>
@@ -650,7 +650,7 @@ const cardMin=r=>({game:r.game,set_name:r.set_name,card_number:r.card_number,par
 async function doubleCheck(r){
   const el=document.getElementById("dcResult");
   if(!sb||!SESSION){ el.innerHTML='<div class="note err">Sign in (top-right) to use Double Check.</div>'; return; }
-  el.innerHTML='<div class="note">Searching recent eBay sold via Gemini… (a few seconds)</div>';
+  el.innerHTML='<div class="note">Searching recent eBay sold comps… (a few seconds)</div>';
   try{
     const {data,error}=await sb.functions.invoke("double-check",{body:{action:"lookup",card:cardMin(r)}});
     if(error) throw new Error(error.message||"lookup failed");
