@@ -724,6 +724,11 @@ function listingUrl(title){
   const t=(title||"").replace(/\(manual\)/i,"").replace(/#\S+/,"").replace(/\s+/g," ").trim();
   return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(t)+"&_sacat=0&LH_Complete=1&LH_Sold=1";
 }
+// exact listing when we have the eBay item id; otherwise a sold-listing title search
+function listingHref(o){
+  if(o&&o.ebay_item_id) return "https://www.ebay.com/itm/"+encodeURIComponent(o.ebay_item_id);
+  return listingUrl(o&&o.item_title);
+}
 // drag-to-resize table columns (adds a grab handle to each header cell)
 function makeResizable(table,onResize){
   if(!table) return;
@@ -758,10 +763,11 @@ const PCOLDEF=[
   {key:"first",  label:"First bought", g:g=>g.first||"—", i:()=>""},
   {key:"qty",    label:"Qty",          g:g=>g.qty>1?`<b>×${g.qty}</b>`:g.qty, i:()=>"", t:T=>T.totQty},
   {key:"paid",   label:"Avg paid",     g:g=>money2(g.avgPaid), i:it=>money2(it.paidN), t:T=>money2(T.spent)},
+  {key:"psa9",   label:"PSA 9 now",    g:g=>money2(g.rep.psa9), i:()=>"", t:T=>money2(T.totPSA9)},
   {key:"psa10",  label:"PSA 10 now",   g:g=>money2(g.rep.psa10), i:()=>"", t:T=>money2(T.totPSA10)},
   {key:"profit", label:"Est. profit",  g:g=>g.avgProf==null?"—":`<span class="${g.avgProf>=0?'pos':'neg'}">${money2(g.avgProf)}</span>`, i:it=>it.profitN==null?"—":money2(it.profitN), t:T=>`<span class="${T.proj>=0?'pos':'neg'}">${money2(T.proj)}</span>`},
   {key:"roi",    label:"ROI",          g:g=>g.roi==null?"—":`<span class="${g.roi>=0?'pos':'neg'}">${Math.round(g.roi*100)}%</span>`, i:()=>"", t:T=>T.totRoi==null?"—":`<span class="${T.totRoi>=0?'pos':'neg'}">${Math.round(T.totRoi*100)}%</span>`},
-  {key:"listing",label:"Listing",      g:g=>`<a href="${listingUrl(g.rep.item_title)}" target="_blank" rel="noopener">Listing ↗</a>`, i:it=>`<a href="${listingUrl(it.item_title)}" target="_blank" rel="noopener">Listing ↗</a>`},
+  {key:"listing",label:"Listing",      g:g=>`<a href="${listingHref(g.rep)}" target="_blank" rel="noopener">Listing ↗</a>`, i:it=>`<a href="${listingHref(it)}" target="_blank" rel="noopener">Listing ↗</a>`},
 ];
 function loadPL(){ let p={}; try{p=JSON.parse(localStorage.getItem(PLKEY)||"{}");}catch(e){}
   const def=PCOLDEF.map(c=>c.key);
@@ -794,7 +800,7 @@ function renderPurchases(rows){
   groups.sort((a,b)=>((b.avgProf==null?-1e9:b.avgProf)-(a.avgProf==null?-1e9:a.avgProf)));
   PURCH=groups;
   const spent=rows.reduce((s,r)=>s+r.paidN,0), proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
-  const T={totQty:groups.reduce((s,g)=>s+g.qty,0), spent, totPSA10:groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0), proj, totRoi:spent>0?proj/spent:null};
+  const T={totQty:groups.reduce((s,g)=>s+g.qty,0), spent, totPSA9:groups.reduce((s,g)=>s+((+g.rep.psa9||0)*g.qty),0), totPSA10:groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0), proj, totRoi:spent>0?proj/spent:null};
   const cols=PL.order.map(k=>PCOLDEF.find(c=>c.key===k)).filter(c=>c && !PL.hidden[c.key]);
 
   const menu=PL.order.map(k=>{ const c=PCOLDEF.find(x=>x.key===k); return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${PL.hidden[k]?"":"checked"}> ${c.label}</label>`; }).join("");
