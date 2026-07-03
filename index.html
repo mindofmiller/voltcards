@@ -725,7 +725,7 @@ function listingUrl(title){
   return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(t)+"&_sacat=0&LH_Complete=1&LH_Sold=1";
 }
 // drag-to-resize table columns (adds a grab handle to each header cell)
-function makeResizable(table){
+function makeResizable(table,onResize){
   if(!table) return;
   if(!document.getElementById("colresize-css")){
     const s=document.createElement("style"); s.id="colresize-css";
@@ -741,54 +741,100 @@ function makeResizable(table){
     const h=document.createElement("div"); h.className="colresize"; th.appendChild(h);
     let sx,sw;
     const mm=ev=>{ th.style.width=Math.max(40,sw+(ev.pageX-sx))+"px"; };
-    const mu=()=>{ document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); document.body.style.cursor=""; };
+    const mu=()=>{ document.removeEventListener("mousemove",mm); document.removeEventListener("mouseup",mu); document.body.style.cursor=""; if(onResize&&th.dataset.key) onResize(th.dataset.key, th.offsetWidth); };
     h.addEventListener("mousedown",e=>{ sx=e.pageX; sw=th.offsetWidth; document.body.style.cursor="col-resize"; e.preventDefault(); e.stopPropagation(); document.addEventListener("mousemove",mm); document.addEventListener("mouseup",mu); });
     h.addEventListener("click",e=>e.stopPropagation());
   });
 }
+// ---- Purchased table: persisted column layout (order / hidden / widths) ----
+let PURCH_ROWS=[];
+const PLKEY="voltdash.pcols";
+const money2=v=>v==null||v===""?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const escH=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const PCOLDEF=[
+  {key:"card",   label:"Card",         g:g=>`${escH(g.rep.name||g.rep.item_title||"")} <span class="muted">${escH(g.rep.parallel||"")}</span>`, i:it=>`<span class="muted">↳ bought ${it.txn_date||"—"}</span>`},
+  {key:"set",    label:"Set",          g:g=>escH((g.rep.set_name||"").replace(" (EN)","")), i:()=>""},
+  {key:"num",    label:"#",            g:g=>escH(g.rep.card_number||"—"), i:()=>""},
+  {key:"first",  label:"First bought", g:g=>g.first||"—", i:()=>""},
+  {key:"qty",    label:"Qty",          g:g=>g.qty>1?`<b>×${g.qty}</b>`:g.qty, i:()=>"", t:T=>T.totQty},
+  {key:"paid",   label:"Avg paid",     g:g=>money2(g.avgPaid), i:it=>money2(it.paidN), t:T=>money2(T.spent)},
+  {key:"psa10",  label:"PSA 10 now",   g:g=>money2(g.rep.psa10), i:()=>"", t:T=>money2(T.totPSA10)},
+  {key:"profit", label:"Est. profit",  g:g=>g.avgProf==null?"—":`<span class="${g.avgProf>=0?'pos':'neg'}">${money2(g.avgProf)}</span>`, i:it=>it.profitN==null?"—":money2(it.profitN), t:T=>`<span class="${T.proj>=0?'pos':'neg'}">${money2(T.proj)}</span>`},
+  {key:"roi",    label:"ROI",          g:g=>g.roi==null?"—":`<span class="${g.roi>=0?'pos':'neg'}">${Math.round(g.roi*100)}%</span>`, i:()=>"", t:T=>T.totRoi==null?"—":`<span class="${T.totRoi>=0?'pos':'neg'}">${Math.round(T.totRoi*100)}%</span>`},
+  {key:"listing",label:"Listing",      g:g=>`<a href="${listingUrl(g.rep.item_title)}" target="_blank" rel="noopener">Listing ↗</a>`, i:it=>`<a href="${listingUrl(it.item_title)}" target="_blank" rel="noopener">Listing ↗</a>`},
+];
+function loadPL(){ let p={}; try{p=JSON.parse(localStorage.getItem(PLKEY)||"{}");}catch(e){}
+  const def=PCOLDEF.map(c=>c.key);
+  let order=Array.isArray(p.order)?p.order.filter(k=>def.includes(k)):[];
+  def.forEach(k=>{ if(!order.includes(k)) order.push(k); });   // append any new columns
+  return {order, hidden:p.hidden||{}, widths:p.widths||{}};
+}
+function savePL(p){ try{localStorage.setItem(PLKEY, JSON.stringify(p));}catch(e){} }
+let PL=loadPL();
+function pcolStyle(){ if(document.getElementById("pcol-css")) return; const s=document.createElement("style"); s.id="pcol-css";
+  s.textContent=".ptools{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}.pcolwrap{position:relative}.pcmenu{position:absolute;right:0;top:110%;background:#fff;border:1px solid #d6d9e6;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:8px;z-index:30;min-width:180px}.pcitem{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:14px;cursor:pointer;border-radius:6px}.pcitem:hover{background:#f2f4fb}.pchint{font-size:11px;color:#8890a6;padding:2px 6px 6px}.ptbl th[data-key]{cursor:grab}.ptbl th[data-key]:active{cursor:grabbing}";
+  document.head.appendChild(s); }
+
 function renderPurchases(rows){
   const body=document.getElementById("pbody");
-  const m=v=>v==null||v===""?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  pcolStyle();
+  PURCH_ROWS=rows;
   if(!rows.length){ body.innerHTML='<p class="note">No purchased cards yet. eBay buys are matched and appear here automatically.</p>'; return; }
   rows.forEach(r=>{ r.paidN=+r.paid||0; r.profitN=(r.est_profit==null?null:+r.est_profit); });
-  // consolidate duplicate purchases of the same card into one row
   const gmap={};
-  rows.forEach(r=>{
-    const k=[r.game,r.set_name,r.card_number,r.parallel].join("¦")||("t:"+(r.item_title||""));
-    (gmap[k]||(gmap[k]={items:[]})).items.push(r);
-  });
+  rows.forEach(r=>{ const k=[r.game,r.set_name,r.card_number,r.parallel].join("¦")||("t:"+(r.item_title||"")); (gmap[k]||(gmap[k]={items:[]})).items.push(r); });
   const groups=Object.values(gmap).map(g=>{
     const items=g.items.slice().sort((a,b)=>String(a.txn_date||"").localeCompare(String(b.txn_date||"")));
-    const qty=items.length;
-    const avgPaid=items.reduce((s,r)=>s+r.paidN,0)/qty;
+    const qty=items.length, avgPaid=items.reduce((s,r)=>s+r.paidN,0)/qty;
     const profs=items.map(r=>r.profitN).filter(v=>v!=null);
-    const avgProf=profs.length?profs.reduce((s,v)=>s+v,0)/profs.length:null;   // est_profit is linear in paid, so avg = profit at avg paid
+    const avgProf=profs.length?profs.reduce((s,v)=>s+v,0)/profs.length:null;   // est_profit is linear in paid
     const roi=(avgProf!=null&&avgPaid>0)?avgProf/avgPaid:null;
     return {items,qty,avgPaid,avgProf,roi,rep:items[0],first:items[0].txn_date};
   });
   groups.sort((a,b)=>((b.avgProf==null?-1e9:b.avgProf)-(a.avgProf==null?-1e9:a.avgProf)));
   PURCH=groups;
-  const spent=rows.reduce((s,r)=>s+r.paidN,0);
-  const proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
-  let h=`<div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
-  const totQty=groups.reduce((s,g)=>s+g.qty,0);
-  const totPSA10=groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0);
-  const totRoi=spent>0?proj/spent:null;
-  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th></th><th>Card</th><th>Set</th><th>#</th><th>First bought</th><th>Qty</th><th>Avg paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th><th>Listing</th></tr></thead><tbody>';
-  h+=`<tr class="ptot" style="font-weight:600;background:#eef1fb"><td></td><td>TOTALS <span class="muted">(${groups.length} unique)</span></td><td></td><td></td><td></td><td>${totQty}</td><td>${m(spent)}</td><td>${m(totPSA10)}</td><td class="${proj>=0?'pos':'neg'}">${m(proj)}</td><td class="${(totRoi||0)>=0?'pos':'neg'}">${totRoi==null?'—':Math.round(totRoi*100)+'%'}</td><td></td></tr>`;
+  const spent=rows.reduce((s,r)=>s+r.paidN,0), proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
+  const T={totQty:groups.reduce((s,g)=>s+g.qty,0), spent, totPSA10:groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0), proj, totRoi:spent>0?proj/spent:null};
+  const cols=PL.order.map(k=>PCOLDEF.find(c=>c.key===k)).filter(c=>c && !PL.hidden[c.key]);
+
+  const menu=PL.order.map(k=>{ const c=PCOLDEF.find(x=>x.key===k); return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${PL.hidden[k]?"":"checked"}> ${c.label}</label>`; }).join("");
+  let h=`<div class="ptools"><div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${money2(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${money2(proj)}</span></span></div>`;
+  h+=`<div class="pcolwrap"><button class="pbtn" id="pcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="pcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="pcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
+
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c.key}"${PL.widths[c.key]?` style="width:${PL.widths[c.key]}px"`:""}>${c.label}</th>`).join("")+'</tr></thead><tbody>';
+  h+=`<tr class="ptot" style="font-weight:600;background:#eef1fb"><td></td>`+cols.map(c=>`<td>${c.key==="card"?`TOTALS <span class="muted">(${groups.length} unique)</span>`:(c.t?c.t(T):"")}</td>`).join("")+`</tr>`;
   groups.forEach((g,gi)=>{
-    const r=g.rep;
-    const roi=g.roi==null?"—":`<span class="${g.roi>=0?'pos':'neg'}">${Math.round(g.roi*100)}%</span>`;
-    const prof=g.avgProf==null?"—":`<span class="${g.avgProf>=0?'pos':'neg'}">${m(g.avgProf)}</span>`;
     const caret=g.qty>1?`<span class="caret" style="cursor:pointer">▸</span>`:"";
-    h+=`<tr class="grow" data-gi="${gi}" style="cursor:pointer"><td>${caret}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${g.first||"—"}</td><td>${g.qty>1?`<b>×${g.qty}</b>`:g.qty}</td><td>${m(g.avgPaid)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td><td><a href="${listingUrl(r.item_title)}" target="_blank" rel="noopener">Listing ↗</a></td></tr>`;
+    h+=`<tr class="grow" data-gi="${gi}" style="cursor:pointer"><td>${caret}</td>`+cols.map(c=>`<td>${c.g(g)}</td>`).join("")+`</tr>`;
     g.items.forEach((it,ii)=>{
-      h+=`<tr class="girow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td><td style="padding-left:22px" class="muted">↳ bought ${it.txn_date||"—"}</td><td></td><td></td><td></td><td></td><td>${m(it.paidN)}</td><td></td><td>${it.profitN==null?"—":m(it.profitN)}</td><td></td><td><a href="${listingUrl(it.item_title)}" target="_blank" rel="noopener">Listing ↗</a></td></tr>`;
+      h+=`<tr class="girow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td>`+cols.map(c=>`<td${c.key==="card"?' style="padding-left:22px"':''}>${c.i?c.i(it):""}</td>`).join("")+`</tr>`;
     });
   });
   h+='</tbody></table></div>';
   body.innerHTML=h;
-  makeResizable(body.querySelector("table.ptbl"));
+
+  const table=body.querySelector("table.ptbl");
+  makeResizable(table,(k,w)=>{ PL.widths[k]=w; savePL(PL); });
+
+  // drag-to-reorder columns
+  let dragKey=null;
+  table.querySelectorAll("thead th[data-key]").forEach(th=>{
+    th.addEventListener("dragstart",e=>{ dragKey=th.dataset.key; e.dataTransfer.effectAllowed="move"; });
+    th.addEventListener("dragover",e=>{ e.preventDefault(); th.style.boxShadow="inset 3px 0 0 #5566ff"; });
+    th.addEventListener("dragleave",()=>{ th.style.boxShadow=""; });
+    th.addEventListener("drop",e=>{ e.preventDefault(); th.style.boxShadow=""; const tgt=th.dataset.key;
+      if(!dragKey||dragKey===tgt) return;
+      const o=PL.order.slice(); o.splice(o.indexOf(dragKey),1); o.splice(o.indexOf(tgt),0,dragKey);
+      PL.order=o; savePL(PL); renderPurchases(PURCH_ROWS); });
+  });
+
+  // columns show/hide menu
+  const btn=body.querySelector("#pcolBtn"), mnu=body.querySelector("#pcolMenu");
+  if(btn) btn.onclick=()=>{ mnu.style.display=mnu.style.display==="none"?"block":"none"; };
+  body.querySelectorAll("#pcolMenu input[data-col]").forEach(cb=>cb.onchange=()=>{ PL.hidden[cb.dataset.col]=!cb.checked; savePL(PL); renderPurchases(PURCH_ROWS); body.querySelector("#pcolMenu").style.display="block"; });
+  const rst=body.querySelector("#pcolReset");
+  if(rst) rst.onclick=()=>{ PL={order:PCOLDEF.map(c=>c.key),hidden:{},widths:{}}; savePL(PL); renderPurchases(PURCH_ROWS); };
+
   const tb=body.querySelector("tbody");
   if(tb) tb.addEventListener("click",e=>{
     if(e.target.closest("a")) return;                 // let Listing links through
@@ -796,8 +842,7 @@ function renderPurchases(rows){
     if(gr){ const g=PURCH[+gr.dataset.gi];
       if(g.qty<=1){ openPurchasedCard(g.rep); return; }
       const kids=body.querySelectorAll(`tr.girow[data-gi="${gr.dataset.gi}"]`);
-      const show=kids.length&&kids[0].hidden;
-      kids.forEach(x=>x.hidden=!show);
+      const show=kids.length&&kids[0].hidden; kids.forEach(x=>x.hidden=!show);
       const c=gr.querySelector(".caret"); if(c) c.textContent=show?"▾":"▸";
       return;
     }
