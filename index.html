@@ -231,7 +231,7 @@ async function rest(path){
   return res.json();
 }
 const LS = "voltdash.v2";
-const GRADE = 79;   // grading cost per card
+const GRADE = 79, HANDLING = 3, COST = GRADE + HANDLING;   // $79 grade + $3 outbound handling per card (inbound baked in per-shipment)
 let sb=null, SESSION=null;
 try{ sb=window.supabase.createClient(SB_URL,SB_KEY); }catch(e){ console.warn("supabase-js not loaded"); }
 const num = v => (v===null||v===undefined||v==="")?null:(typeof v==="number"?v:parseFloat(v));
@@ -341,8 +341,8 @@ function enrich(r){
   const priced = raw!=null && p9!=null && p10!=null && p9>0;
   let profit=null, roi=null, liqOk=false;
   if(priced){
-    profit=(gr*p10 + (1-gr)*p9)*0.88 - GRADE - raw;
-    roi = profit/p9;
+    profit=(gr*p10 + (1-gr)*p9)*0.88 - COST - raw;
+    roi = profit/(raw + COST);
     liqOk = p10 <= 5*p9;
   }
   return Object.assign({}, r, {gr,raw,p9,p10,priced,profit,roi,liqOk,
@@ -436,7 +436,7 @@ function render(){
       return `<td>${v}</td>`;
     }).join("")+"</tr>";
   }).join("");
-  document.getElementById("foot").textContent=`Showing ${Math.min(rows.length,600)} of ${rows.length} rows · snapshot ${st.date} · source PriceCharting · expected profit = (gem%×PSA10 + (1−gem%)×PSA9)×0.88 − $${GRADE} grading − Raw`;
+  document.getElementById("foot").textContent=`Showing ${Math.min(rows.length,600)} of ${rows.length} rows · snapshot ${st.date} · source PriceCharting · expected profit = (gem%×PSA10 + (1−gem%)×PSA9)×0.88 − $${COST} (grade+handling) − Raw · ROI = profit ÷ (Raw + $${COST})`;
   drawChart(rows);
 }
 function stat(k,v,s){return `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s||""}</div></div>`;}
