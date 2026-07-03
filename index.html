@@ -149,12 +149,11 @@ tr.out:hover td{background:#dff0e4}
     <button id="favBtnTop" class="pbtn">⭐ Favorites</button>
     <button id="purchasedBtn" class="pbtn">📦 Purchased</button>
   </div>
+  <div class="topsearch" style="margin:10px 0 4px"><input type="text" id="q" placeholder="🔍 Search name / parallel / #  —  any order (e.g. luffy voyage 55)" style="width:100%;padding:11px 14px;font-size:15px;border:1px solid #d6d9e6;border-radius:10px;box-sizing:border-box"></div>
   <div id="pov" class="povl"></div>
   <div id="pmodal"><header><h2>📦 Purchased cards</h2><div class="phdr"><button id="addPurchaseBtn" class="pbtn">➕ Add</button><button class="close" id="pClose">×</button></div></header><div class="addform" id="addForm" style="display:none"></div><div class="pbody" id="pbody"></div></div>
   <div id="fov" class="povl"></div>
   <div id="fmodal"><header><h2>⭐ Favorites</h2><button class="close" id="fClose">×</button></header><div class="pbody" id="fbody"></div></div>
-
-  <div class="stats" id="stats"></div>
 
   <div class="card" style="margin-bottom:14px">
     <div class="controls">
@@ -165,10 +164,6 @@ tr.out:hover td{background:#dff0e4}
       <div>
         <label class="fld">Set</label>
         <select id="setSel"></select>
-      </div>
-      <div>
-        <label class="fld">Search name / parallel</label>
-        <input type="text" id="q" placeholder="e.g. Boa Hancock">
       </div>
       <div>
         <label class="fld">Game</label>
@@ -196,6 +191,7 @@ tr.out:hover td{background:#dff0e4}
       <label class="tg"><input type="checkbox" id="lowConfHide"> Hide low-confidence prices</label>
       <label class="tg"><input type="checkbox" id="hideInac"> Hide inaccurate-tagged</label>
       <label class="tg"><input type="checkbox" id="hideUn" checked> Hide unpriced</label>
+      <button class="pbtn" id="clearBtn" style="margin-left:auto">✕ Clear all filters</button>
     </div>
   </div>
 
@@ -365,7 +361,7 @@ function filtered(){
     if(st.p10Min!=null){ if(x.p10==null || x.p10 < st.p10Min) return false; }
     if(st.p10Max!=null){ if(x.p10==null || x.p10 > st.p10Max) return false; }
     if(st.profMin>0){ if(!x.priced || x.profit < st.profMin) return false; }
-    if(st.q){ const q=st.q.toLowerCase(); if(!((x.name||"").toLowerCase().includes(q)||(x.parallel||"").toLowerCase().includes(q))) return false; }
+    if(st.q){ const toks=st.q.toLowerCase().split(/\s+/).filter(Boolean); const s=((x.name||"")+" "+(x.parallel||"")+" "+(x.card_number||"")).toLowerCase(); if(!toks.every(t=>s.includes(t))) return false; }
     return true;
   });
 }
@@ -403,18 +399,6 @@ function render(){
     bv=(bv==null)?-Infinity:(typeof bv==="string"?bv.toLowerCase():bv);
     if(av<bv) return -sortDir; if(av>bv) return sortDir; return 0;
   });
-  // stats
-  const priced=rows.filter(r=>r.priced);
-  const lowc=rows.filter(r=>r.price_confidence==="low").length;
-  const rois=priced.map(r=>r.roi).sort((a,b)=>a-b);
-  const med=rois.length?rois[Math.floor(rois.length/2)]:null;
-  const best=priced.reduce((m,r)=>(!m||r.profit>m.profit)?r:m,null);
-  document.getElementById("stats").innerHTML=[
-    stat("Cards shown", rows.length, priced.length+" priced"),
-    stat("Low-confidence", lowc, "flagged prices"),
-    stat("Median ROI", med==null?"—":Math.round(med*100)+"%", "of priced cards"),
-    stat("Top profit", best?money(best.profit):"—", best?(shortSet(best.set_name)+" · "+best.name):""),
-  ].join("");
   // header
   const thead=document.querySelector("#tbl thead");
   thead.innerHTML="<tr>"+COLS.map(c=>{
@@ -520,6 +504,12 @@ function bind(){
   on("hideUn","change",e=>{st.hideUn=e.target.checked;save();render();});
   on("setSel","change",e=>{st.set=e.target.value;save();render();});
   on("dateSel","change",e=>{st.date=e.target.value;save();loadDate();});
+  on("clearBtn","click",clearAll);
+}
+function clearAll(){
+  st.q=""; st.profMin=0; st.volT=0; st.rawMin=null; st.rawMax=null; st.p10Min=null; st.p10Max=null;
+  st.set="__all"; st.games=[]; st.liq=true; st.lowConfHide=false; st.hideInac=false; st.hideUn=true;
+  save(); syncControls(); buildGameChips(); buildSetOptions(); render();
 }
 
 function afterLoad(subText){
@@ -730,26 +720,63 @@ async function openPurchases(){
     renderPurchases(data||[]);
   }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
 }
+function listingUrl(title){
+  const t=(title||"").replace(/\(manual\)/i,"").replace(/#\S+/,"").replace(/\s+/g," ").trim();
+  return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(t)+"&_sacat=0&LH_Complete=1&LH_Sold=1";
+}
 function renderPurchases(rows){
   const body=document.getElementById("pbody");
   const m=v=>v==null||v===""?"—":"$"+(+v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   if(!rows.length){ body.innerHTML='<p class="note">No purchased cards yet. eBay buys are matched and appear here automatically.</p>'; return; }
-  rows.forEach(r=>{ r.paidN=+r.paid||0; r.profitN=(r.est_profit==null?null:+r.est_profit); r.roiN=(r.paidN>0&&r.profitN!=null)?r.profitN/r.paidN:null; });
-  rows.sort((a,b)=>String(b.txn_date||"").localeCompare(String(a.txn_date||"")));
-  PURCH=rows;
+  rows.forEach(r=>{ r.paidN=+r.paid||0; r.profitN=(r.est_profit==null?null:+r.est_profit); });
+  // consolidate duplicate purchases of the same card into one row
+  const gmap={};
+  rows.forEach(r=>{
+    const k=[r.game,r.set_name,r.card_number,r.parallel].join("¦")||("t:"+(r.item_title||""));
+    (gmap[k]||(gmap[k]={items:[]})).items.push(r);
+  });
+  const groups=Object.values(gmap).map(g=>{
+    const items=g.items.slice().sort((a,b)=>String(a.txn_date||"").localeCompare(String(b.txn_date||"")));
+    const qty=items.length;
+    const avgPaid=items.reduce((s,r)=>s+r.paidN,0)/qty;
+    const profs=items.map(r=>r.profitN).filter(v=>v!=null);
+    const avgProf=profs.length?profs.reduce((s,v)=>s+v,0)/profs.length:null;   // est_profit is linear in paid, so avg = profit at avg paid
+    const roi=(avgProf!=null&&avgPaid>0)?avgProf/avgPaid:null;
+    return {items,qty,avgPaid,avgProf,roi,rep:items[0],first:items[0].txn_date};
+  });
+  groups.sort((a,b)=>((b.avgProf==null?-1e9:b.avgProf)-(a.avgProf==null?-1e9:a.avgProf)));
+  PURCH=groups;
   const spent=rows.reduce((s,r)=>s+r.paidN,0);
   const proj=rows.reduce((s,r)=>s+(r.profitN||0),0);
-  let h=`<div class="psum"><span>${rows.length} cards</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
-  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th>Purchased</th><th>Card</th><th>Set</th><th>#</th><th>Paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th></tr></thead><tbody>';
-  rows.forEach((r,i)=>{
-    const roi=r.roiN==null?"—":`<span class="${r.roiN>=0?'pos':'neg'}">${Math.round(r.roiN*100)}%</span>`;
-    const prof=r.profitN==null?"—":`<span class="${r.profitN>=0?'pos':'neg'}">${m(r.profitN)}</span>`;
-    h+=`<tr data-pi="${i}"><td>${r.txn_date||"—"}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${m(r.paidN)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td></tr>`;
+  let h=`<div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${m(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${m(proj)}</span></span></div>`;
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th></th><th>Card</th><th>Set</th><th>#</th><th>First bought</th><th>Qty</th><th>Avg paid</th><th>PSA 10 now</th><th>Est. profit</th><th>ROI</th><th>Listing</th></tr></thead><tbody>';
+  groups.forEach((g,gi)=>{
+    const r=g.rep;
+    const roi=g.roi==null?"—":`<span class="${g.roi>=0?'pos':'neg'}">${Math.round(g.roi*100)}%</span>`;
+    const prof=g.avgProf==null?"—":`<span class="${g.avgProf>=0?'pos':'neg'}">${m(g.avgProf)}</span>`;
+    const caret=g.qty>1?`<span class="caret" style="cursor:pointer">▸</span>`:"";
+    h+=`<tr class="grow" data-gi="${gi}" style="cursor:pointer"><td>${caret}</td><td>${(r.name||r.item_title||"")} <span class="muted">${r.parallel||""}</span></td><td>${(r.set_name||"").replace(" (EN)","")}</td><td>${r.card_number||"—"}</td><td>${g.first||"—"}</td><td>${g.qty>1?`<b>×${g.qty}</b>`:g.qty}</td><td>${m(g.avgPaid)}</td><td>${m(r.psa10)}</td><td>${prof}</td><td>${roi}</td><td><a href="${listingUrl(r.item_title)}" target="_blank" rel="noopener">Listing ↗</a></td></tr>`;
+    g.items.forEach((it,ii)=>{
+      h+=`<tr class="girow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td><td style="padding-left:22px" class="muted">↳ bought ${it.txn_date||"—"}</td><td></td><td></td><td></td><td></td><td>${m(it.paidN)}</td><td></td><td>${it.profitN==null?"—":m(it.profitN)}</td><td></td><td><a href="${listingUrl(it.item_title)}" target="_blank" rel="noopener">Listing ↗</a></td></tr>`;
+    });
   });
   h+='</tbody></table></div>';
   body.innerHTML=h;
   const tb=body.querySelector("tbody");
-  if(tb) tb.addEventListener("click",e=>{ const tr=e.target.closest("tr[data-pi]"); if(tr) openPurchasedCard(PURCH[+tr.dataset.pi]); });
+  if(tb) tb.addEventListener("click",e=>{
+    if(e.target.closest("a")) return;                 // let Listing links through
+    const gr=e.target.closest("tr.grow");
+    if(gr){ const g=PURCH[+gr.dataset.gi];
+      if(g.qty<=1){ openPurchasedCard(g.rep); return; }
+      const kids=body.querySelectorAll(`tr.girow[data-gi="${gr.dataset.gi}"]`);
+      const show=kids.length&&kids[0].hidden;
+      kids.forEach(x=>x.hidden=!show);
+      const c=gr.querySelector(".caret"); if(c) c.textContent=show?"▾":"▸";
+      return;
+    }
+    const ir=e.target.closest("tr.girow");
+    if(ir){ openPurchasedCard(PURCH[+ir.dataset.gi].items[+ir.dataset.ii]); }
+  });
 }
 
 // ---- click a purchased row -> open the card sidebar ----
