@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Volt Cards — Grading ROI Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%230b1f4d'/%3E%3Cpath%20d='M14%202%20L5%2013%20h5%20l-1%209%209-12%20h-5%20z'%20fill='%23ffd23f'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
@@ -803,11 +804,16 @@ function renderPurchases(rows){
   const priced=rows.filter(r=>r.profitN!=null);   // both PSA9 + PSA10 known
   const allP9=priced.reduce((s,r)=>s+(+r.psa9*0.88-82-r.paidN),0);   // worst case: every card grades PSA 9
   const allP10=priced.reduce((s,r)=>s+(+r.psa10*0.88-82-r.paidN),0); // best case: every card grades PSA 10
+  const gemsA=priced.map(r=>Math.min(1,Math.max(0,+r.gem_rate||0)));
+  const pAll9=gemsA.reduce((p,g)=>p*(1-g),1);     // P(every card grades 9) = Π(1-gem)
+  const pAll10=gemsA.reduce((p,g)=>p*g,1);        // P(every card gems)     = Π(gem)
+  const avgGem=gemsA.length?gemsA.reduce((s,g)=>s+g,0)/gemsA.length:null;
+  const pf=p=>{ if(!(p>0)) return "0%"; const v=p*100; return v<0.01?"<0.01%":(v<1?v.toFixed(2):v.toFixed(1))+"%"; };
   const T={totQty:groups.reduce((s,g)=>s+g.qty,0), spent, totPSA9:groups.reduce((s,g)=>s+((+g.rep.psa9||0)*g.qty),0), totPSA10:groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0), proj, totRoi:spent>0?proj/spent:null};
   const cols=PL.order.map(k=>PCOLDEF.find(c=>c.key===k)).filter(c=>c && !PL.hidden[c.key]);
 
   const menu=PL.order.map(k=>{ const c=PCOLDEF.find(x=>x.key===k); return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${PL.hidden[k]?"":"checked"}> ${c.label}</label>`; }).join("");
-  let h=`<div class="ptools"><div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${money2(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${money2(proj)}</span></span><span title="If every card graded PSA 9">Worst case · all PSA 9: <span class="${allP9>=0?'pos':'neg'}">${money2(allP9)}</span></span><span title="If every card graded PSA 10">Best case · all PSA 10: <span class="${allP10>=0?'pos':'neg'}">${money2(allP10)}</span></span></div>`;
+  let h=`<div class="ptools"><div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${money2(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${money2(proj)}</span> <span class="muted">(avg gem ${avgGem==null?'—':Math.round(avgGem*100)+'%'})</span></span><span title="Probability every card grades PSA 9 = product of each card's (1 − gem rate)">Worst case · all PSA 9: <span class="${allP9>=0?'pos':'neg'}">${money2(allP9)}</span> <span class="muted">(${pf(pAll9)} chance)</span></span><span title="Probability every card gems (PSA 10) = product of each card's gem rate">Best case · all PSA 10: <span class="${allP10>=0?'pos':'neg'}">${money2(allP10)}</span> <span class="muted">(${pf(pAll10)} chance)</span></span></div>`;
   h+=`<div class="pcolwrap"><button class="pbtn" id="pcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="pcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="pcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
 
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c.key}"${PL.widths[c.key]?` style="width:${PL.widths[c.key]}px"`:""}>${c.label}</th>`).join("")+'</tr></thead><tbody>';
