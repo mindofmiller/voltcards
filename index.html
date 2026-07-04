@@ -199,6 +199,13 @@ tr.out:hover td{background:#dff0e4}
     </div>
   </div>
 
+  <div class="card" style="margin-bottom:14px;padding:0">
+    <div style="display:flex;justify-content:flex-end;align-items:center;padding:8px 10px 4px">
+      <div class="pcolwrap"><button class="pbtn" id="mcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="mcolMenu" style="display:none"></div></div>
+    </div>
+    <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  </div>
+
   <div class="card" style="margin-bottom:14px">
     <div class="legend">
       <span><span class="dot" style="background:var(--pk)"></span>Pokémon</span>
@@ -207,10 +214,6 @@ tr.out:hover td{background:#dff0e4}
       <span class="muted">— larger points = more graded (population). Dashed line = min-profit filter.</span>
     </div>
     <div class="chartbox"><canvas id="scatter"></canvas></div>
-  </div>
-
-  <div class="tablewrap card" style="padding:0">
-    <table id="tbl"><thead></thead><tbody></tbody></table>
   </div>
   <footer id="foot"></footer>
 </div>
@@ -390,6 +393,16 @@ const COLS=[
   ["volume","Vol",r=>num(r.volume)==null?"—":num(r.volume)],
   ["_status","★ / Status",r=>statusCell(r)],
 ];
+// persisted main-table layout (order / hidden / widths)
+const MLKEY="voltdash.maincols";
+function loadML(){ let p={}; try{p=JSON.parse(localStorage.getItem(MLKEY)||"{}");}catch(e){}
+  const def=COLS.map(c=>c[0]);
+  let order=Array.isArray(p.order)?p.order.filter(k=>def.includes(k)):[];
+  def.forEach(k=>{ if(!order.includes(k)) order.push(k); });   // append any new columns
+  return {order, hidden:p.hidden||{}, widths:p.widths||{}};
+}
+function saveML(p){ try{localStorage.setItem(MLKEY,JSON.stringify(p));}catch(e){} }
+let ML=loadML();
 function shortSet(s){return (s||"").replace(" (EN)","").replace("Pokemon ","Pkmn ").replace("One Piece ","OP ");}
 function statusCell(r){
   const fav=isFav(r), t=trackOf(r), val=isValue(r);
@@ -402,6 +415,7 @@ function statusCell(r){
 }
 
 function render(){
+  pcolStyle();
   const rows=filtered();
   const statusRank=r=>(isValue(r)?4:0)+(isFav(r)?2:0)+(trackOf(r)?1:0);
   rows.sort((a,b)=>{
@@ -411,27 +425,42 @@ function render(){
     bv=(bv==null)?-Infinity:(typeof bv==="string"?bv.toLowerCase():bv);
     if(av<bv) return -sortDir; if(av>bv) return sortDir; return 0;
   });
-  // header
+  const cols=ML.order.map(k=>COLS.find(c=>c[0]===k)).filter(c=>c && !ML.hidden[c[0]]);
+  // header (sortable + draggable-to-reorder + resizable)
   const thead=document.querySelector("#tbl thead");
-  thead.innerHTML="<tr>"+COLS.map(c=>{
+  thead.innerHTML="<tr>"+cols.map(c=>{
     let cl="sort"; if(c[0]===sortKey) cl=sortDir>0?"asc":"desc";
-    return `<th class="${cl}" data-k="${c[0]}">${c[1]}</th>`;
+    return `<th class="${cl}" draggable="true" data-k="${c[0]}" data-key="${c[0]}"${ML.widths[c[0]]?` style="width:${ML.widths[c[0]]}px"`:""}>${c[1]}</th>`;
   }).join("")+"</tr>";
-  thead.querySelectorAll("th").forEach(th=>th.onclick=()=>{
-    const k=th.dataset.k; if(k===sortKey) sortDir*=-1; else {sortKey=k; sortDir=(k==="name"||k==="parallel"||k==="set_name")?1:-1;}
-    render();
+  let dragKey=null;
+  thead.querySelectorAll("th").forEach(th=>{
+    th.onclick=e=>{ if(e.target.closest(".colresize")) return; const k=th.dataset.k;
+      if(k===sortKey) sortDir*=-1; else {sortKey=k; sortDir=(k==="name"||k==="parallel"||k==="set_name")?1:-1;} render(); };
+    th.addEventListener("dragstart",e=>{ dragKey=th.dataset.key; e.dataTransfer.effectAllowed="move"; });
+    th.addEventListener("dragover",e=>{ e.preventDefault(); th.style.boxShadow="inset 3px 0 0 #5566ff"; });
+    th.addEventListener("dragleave",()=>{ th.style.boxShadow=""; });
+    th.addEventListener("drop",e=>{ e.preventDefault(); th.style.boxShadow=""; const tgt=th.dataset.key; if(!dragKey||dragKey===tgt) return;
+      const o=ML.order.slice(); o.splice(o.indexOf(dragKey),1); o.splice(o.indexOf(tgt),0,dragKey); ML.order=o; saveML(ML); render(); });
   });
   // body
   const tb=document.querySelector("#tbl tbody");
   VIEW=rows.slice(0,600);
   tb.innerHTML=VIEW.map((r,i)=>{
-    return `<tr data-i="${i}">`+COLS.map(c=>{
+    return `<tr data-i="${i}">`+cols.map(c=>{
       let v=c[2](r);
       if(c[0]==="set_name") v=`<span class="dot" style="background:${gameColor(r.game)}"></span>${v}`;
       if(c[0]==="roi"&&r.roi!=null){const h=Math.min(120,Math.max(0,r.roi*80));v=`<span style="color:hsl(${h},70%,35%);font-weight:600">${v}</span>`;}
       return `<td>${v}</td>`;
     }).join("")+"</tr>";
   }).join("");
+  makeResizable(document.getElementById("tbl"),(k,w)=>{ ML.widths[k]=w; saveML(ML); });
+  // columns show/hide menu
+  const mnu=document.getElementById("mcolMenu");
+  if(mnu){
+    mnu.innerHTML='<div class="pchint">Show / hide · drag headers to reorder</div>'+ML.order.map(k=>{const c=COLS.find(x=>x[0]===k); return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${ML.hidden[k]?"":"checked"}> ${c[1]}</label>`;}).join("")+'<button class="pbtn" id="mcolReset" style="margin-top:6px;width:100%">Reset layout</button>';
+    mnu.querySelectorAll("input[data-col]").forEach(cb=>cb.onchange=()=>{ ML.hidden[cb.dataset.col]=!cb.checked; saveML(ML); render(); document.getElementById("mcolMenu").style.display="block"; });
+    const rst=document.getElementById("mcolReset"); if(rst) rst.onclick=()=>{ ML={order:COLS.map(c=>c[0]),hidden:{},widths:{}}; saveML(ML); render(); };
+  }
   document.getElementById("foot").textContent=`Showing ${Math.min(rows.length,600)} of ${rows.length} rows · snapshot ${st.date} · source PriceCharting · expected profit = (gem%×PSA10 + (1−gem%)×PSA9)×0.88 − $${COST} (grade+handling) − Raw · ROI = profit ÷ (Raw + $${COST})`;
   drawChart(rows);
 }
@@ -519,6 +548,7 @@ function bind(){
   on("setSel","change",e=>{st.set=e.target.value;save();render();});
   on("dateSel","change",e=>{st.date=e.target.value;save();loadDate();});
   on("clearBtn","click",clearAll);
+  on("mcolBtn","click",()=>{ const m=document.getElementById("mcolMenu"); m.style.display=m.style.display==="none"?"block":"none"; });
 }
 function clearAll(){
   st.q=""; st.profMin=0; st.volT=0; st.rawMin=null; st.rawMax=null; st.p10Min=null; st.p10Max=null;
@@ -758,7 +788,7 @@ function makeResizable(table,onResize){
   table.style.tableLayout="fixed";
   table.style.width=widths.reduce((a,b)=>a+b,0)+"px";
   ths.forEach((th,i)=>{
-    th.style.width=widths[i]+"px"; th.style.position="relative"; th.style.overflow="hidden";
+    th.style.width=widths[i]+"px"; if(getComputedStyle(th).position==="static") th.style.position="relative";
     const h=document.createElement("div"); h.className="colresize"; th.appendChild(h);
     let sx,sw;
     const mm=ev=>{ th.style.width=Math.max(40,sw+(ev.pageX-sx))+"px"; };
