@@ -805,15 +805,20 @@ function renderPurchases(rows){
   const allP9=priced.reduce((s,r)=>s+(+r.psa9*0.88-82-r.paidN),0);   // worst case: every card grades PSA 9
   const allP10=priced.reduce((s,r)=>s+(+r.psa10*0.88-82-r.paidN),0); // best case: every card grades PSA 10
   const gemsA=priced.map(r=>Math.min(1,Math.max(0,+r.gem_rate||0)));
-  const pAll9=gemsA.reduce((p,g)=>p*(1-g),1);     // P(every card grades 9) = Π(1-gem)
-  const pAll10=gemsA.reduce((p,g)=>p*g,1);        // P(every card gems)     = Π(gem)
   const avgGem=gemsA.length?gemsA.reduce((s,g)=>s+g,0)/gemsA.length:null;
-  const pf=p=>{ if(!(p>0)) return "0%"; const v=p*100; return v<0.01?"<0.01%":(v<1?v.toFixed(2):v.toFixed(1))+"%"; };
+  // Monte Carlo: probability the realized profit meets or beats the expected estimate
+  let pHit=null;
+  if(priced.length){
+    const p10=priced.map(r=>+r.psa10*0.88-82-r.paidN), p9=priced.map(r=>+r.psa9*0.88-82-r.paidN);
+    const T=20000; let hits=0;
+    for(let t=0;t<T;t++){ let s=0; for(let i=0;i<gemsA.length;i++) s+=(Math.random()<gemsA[i])?p10[i]:p9[i]; if(s>=proj-1e-6) hits++; }
+    pHit=hits/T;
+  }
   const T={totQty:groups.reduce((s,g)=>s+g.qty,0), spent, totPSA9:groups.reduce((s,g)=>s+((+g.rep.psa9||0)*g.qty),0), totPSA10:groups.reduce((s,g)=>s+((+g.rep.psa10||0)*g.qty),0), proj, totRoi:spent>0?proj/spent:null};
   const cols=PL.order.map(k=>PCOLDEF.find(c=>c.key===k)).filter(c=>c && !PL.hidden[c.key]);
 
   const menu=PL.order.map(k=>{ const c=PCOLDEF.find(x=>x.key===k); return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${PL.hidden[k]?"":"checked"}> ${c.label}</label>`; }).join("");
-  let h=`<div class="ptools"><div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${money2(spent)}</span><span>Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${money2(proj)}</span> <span class="muted">(avg gem ${avgGem==null?'—':Math.round(avgGem*100)+'%'})</span></span><span title="Probability every card grades PSA 9 = product of each card's (1 − gem rate)">Worst case · all PSA 9: <span class="${allP9>=0?'pos':'neg'}">${money2(allP9)}</span> <span class="muted">(${pf(pAll9)} chance)</span></span><span title="Probability every card gems (PSA 10) = product of each card's gem rate">Best case · all PSA 10: <span class="${allP10>=0?'pos':'neg'}">${money2(allP10)}</span> <span class="muted">(${pf(pAll10)} chance)</span></span></div>`;
+  let h=`<div class="ptools"><div class="psum"><span>${rows.length} cards · ${groups.length} unique</span><span>Spent: ${money2(spent)}</span><span title="Simulated chance the actual outcome meets or beats this estimate (each card gems independently at its gem rate)">Est. profit if graded/sold: <span class="${proj>=0?'pos':'neg'}">${money2(proj)}</span> <span class="muted">(avg gem ${avgGem==null?'—':Math.round(avgGem*100)+'%'} · ${pHit==null?'—':Math.round(pHit*100)+'%'} chance to hit or beat)</span></span><span title="If every card graded PSA 9">Worst case · all PSA 9: <span class="${allP9>=0?'pos':'neg'}">${money2(allP9)}</span></span><span title="If every card graded PSA 10">Best case · all PSA 10: <span class="${allP10>=0?'pos':'neg'}">${money2(allP10)}</span></span></div>`;
   h+=`<div class="pcolwrap"><button class="pbtn" id="pcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="pcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="pcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
 
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c.key}"${PL.widths[c.key]?` style="width:${PL.widths[c.key]}px"`:""}>${c.label}</th>`).join("")+'</tr></thead><tbody>';
