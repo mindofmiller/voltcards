@@ -45,6 +45,8 @@ th{position:sticky;top:0;background:#f0f2f8;cursor:pointer;user-select:none;font
 th.sort::after{content:" \2195";opacity:.4}
 th.asc::after{content:" \2191";opacity:.9}
 th.desc::after{content:" \2193";opacity:.9}
+/* clip cell text to its own column so long values don't overlap the next column */
+#tbl td,.ptbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr.out td{background:var(--goodbg)}
 tr.out td:first-child{box-shadow:inset 3px 0 0 var(--good)}
 .g-op{color:var(--op)}.g-pokemon{color:var(--pk)}.g-magic{color:var(--mg)}
