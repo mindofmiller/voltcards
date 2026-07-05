@@ -160,6 +160,29 @@ tr.out:hover td{background:#dff0e4}
 #lside .body{padding:14px 16px;overflow:auto}
 .notint{border:none;background:#fdeaea;color:#c0392b;border-radius:8px;padding:10px;cursor:pointer;font-size:13px;font-weight:600;width:100%;margin-top:8px}
 .notint:hover{background:#f9d5d5}
+/* gallery mode */
+#gmodal{position:fixed;top:3vh;left:50%;transform:translateX(-50%) translateY(-20px);width:min(1100px,96vw);max-height:94vh;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(20,26,40,.25);z-index:100;display:none;flex-direction:column;opacity:0;transition:.15s}
+#gmodal.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#gmodal header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+#gmodal header h2{margin:0;font-size:15px}
+#gmodal .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px}
+#gov{position:fixed;inset:0;background:rgba(20,26,40,.45);opacity:0;pointer-events:none;transition:.15s;z-index:95}
+#gov.on{opacity:1;pointer-events:auto}
+.ggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.gcard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.gcard.gone{opacity:.35;filter:grayscale(1)}
+.gcard .gimg{aspect-ratio:3/4;background:#eef1f8;display:flex;align-items:center;justify-content:center}
+.gcard .gimg img{width:100%;height:100%;object-fit:cover}
+.gcard .gmeta{padding:8px 10px}
+.gcard .gprice{font-weight:700;font-size:14px}
+.gcard .gtime{font-size:11px;color:var(--muted);margin-top:2px}
+.gbtns{display:flex;gap:0;border-top:1px solid var(--line);margin-top:auto}
+.gbtns button{flex:1;border:none;background:#fff;padding:9px 6px;cursor:pointer;font-size:12px;font-weight:600}
+.gbtns .gignore{color:#c0392b;border-right:1px solid var(--line)}
+.gbtns .gignore:hover{background:#fdeaea}
+.gbtns .gbuy{color:#1c5a99}
+.gbtns .gbuy:hover{background:#eef3ff}
+.gbtn{padding:3px 8px;font-size:12px}
 </style>
 </head>
 <body>
@@ -184,6 +207,8 @@ tr.out:hover td{background:#dff0e4}
   <div id="bmodal"><header><h2>🛒 Let's buy! — raw listings for your favorites</h2><button class="close" id="bClose">×</button></header><div class="pbody" id="bbody"></div></div>
   <div id="lov"></div>
   <aside id="lside"><header><h2 id="lTitle">Listing</h2><button class="close" id="lClose">×</button></header><div class="body" id="lBody"></div></aside>
+  <div id="gov"></div>
+  <div id="gmodal"><header><h2 id="gTitle">New listings</h2><button class="close" id="gClose">×</button></header><div class="pbody" id="gbody"></div></div>
 
   <div class="card" style="margin-bottom:14px">
     <div class="controls">
@@ -1099,6 +1124,7 @@ const tyBadge=t=>t==="B"?`<span style="font-weight:700;color:#1c5a99;background:
 const LBCOLS=[
   ["card","Card", g=>`${g.hasDeal?"🔥 ":""}${escH(g.rep.name||g.rep.title)} <span class="muted">${escH(g.rep.parallel||"")}</span>`,
     (it,g)=>`<span style="padding-left:16px">${isBinDeal(it,g)?"🔥 ":""}<img src="${escH(it.image_url||"")}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;vertical-align:middle;margin-right:6px">${escH((it.title||"").slice(0,52))}</span>`],
+  ["gallery","Gallery", (g,gi)=>`<button class="pbtn gbtn" data-gal="${gi}" title="Visually scan last-24h listings">🖼</button>`, ()=>""],
   ["type","Type", ()=>"", it=>tyBadge(binOf(it))],
   ["price","Price", g=>money2(g.minPrice), (it,g)=>`${isBinDeal(it,g)?"🔥 ":""}${money2(it.price)}`],
   ["paid","Avg paid", g=>g.paidAvg==null?"—":money2(g.paidAvg), ()=>""],
@@ -1152,7 +1178,7 @@ function renderLetsBuy(){
   h+=`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c[0]}"${LBL.widths[c[0]]?` style="width:${LBL.widths[c[0]]}px"`:""}>${c[1]}</th>`).join("")+'</tr></thead><tbody>';
   groups.forEach((g,gi)=>{
-    h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+cols.map(c=>`<td>${c[2](g)}</td>`).join("")+`</tr>`;
+    h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+cols.map(c=>`<td>${c[2](g,gi)}</td>`).join("")+`</tr>`;
     g.items.forEach((it,ii)=>{
       h+=`<tr class="lirow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td>`+cols.map(c=>`<td>${c[3](it,g)}</td>`).join("")+`</tr>`;
     });
@@ -1177,6 +1203,7 @@ function renderLetsBuy(){
   const tb=body.querySelector("tbody");
   tb.addEventListener("click",e=>{
     if(e.target.closest("a")) return;
+    const gb=e.target.closest(".gbtn"); if(gb){ e.stopPropagation(); openGallery(LBGROUPS[+gb.dataset.gal]); return; }
     const gr=e.target.closest("tr.lgrow");
     if(gr){ const kids=body.querySelectorAll(`tr.lirow[data-gi="${gr.dataset.gi}"]`);
       const show=kids.length&&kids[0].hidden; kids.forEach(x=>x.hidden=!show);
@@ -1223,6 +1250,37 @@ async function dismissListing(it){
   LB=LB.filter(x=>x.item_id!==it.item_id);
   closeListing(); renderLetsBuy();
 }
+function closeGallery(){ document.getElementById("gov").classList.remove("on"); document.getElementById("gmodal").classList.remove("on"); }
+function openGallery(g){
+  if(!g) return;
+  const now=Date.now(), DAY=86400*1000;
+  const items=g.items.filter(it=>now-new Date(it.first_seen).getTime()<=DAY)
+    .sort((a,b)=>new Date(b.first_seen).getTime()-new Date(a.first_seen).getTime());
+  document.getElementById("gTitle").innerHTML=`🖼 ${escH(g.rep.name||g.rep.title)} <span class="muted">${escH(g.rep.parallel||"")}</span> — ${items.length} new in last 24h`;
+  const body=document.getElementById("gbody");
+  if(!items.length){ body.innerHTML='<p class="note">No new listings for this card in the last 24 hours.</p>'; }
+  else {
+    body.innerHTML='<div class="note" style="margin-top:0">Newest first. Tap the image (or Buy) to open on eBay; Ignore hides a listing everywhere.</div><div class="ggrid">'+items.map(it=>{
+      const deal=isBinDeal(it,g), ty=binOf(it);
+      return `<div class="gcard" data-item="${escH(it.item_id)}"><div class="gimg"><a href="${escH(it.url||"#")}" target="_blank" rel="noopener">${it.image_url?`<img src="${escH(it.image_url)}" alt="" loading="lazy">`:""}</a></div>`+
+        `<div class="gmeta"><div class="gprice">${deal?"🔥 ":""}${money2(it.price)} <span class="muted" style="font-size:11px;font-weight:400">${ty==="B"?"BIN":ty==="A"?"Auction":""}</span></div>`+
+        `<div class="gtime" title="${escH(absTime(it.first_seen))}">🕒 ${timeAgo(it.first_seen)}</div></div>`+
+        `<div class="gbtns"><button class="gignore" data-item="${escH(it.item_id)}">🚫 Ignore</button><a class="gbuy" href="${escH(it.url||"#")}" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;text-decoration:none">🛒 Buy</a></div></div>`;
+    }).join("")+'</div>';
+    body.querySelectorAll(".gignore").forEach(btn=>btn.onclick=async(ev)=>{
+      ev.stopPropagation(); const id=btn.dataset.item;
+      const it=g.items.find(x=>String(x.item_id)===String(id));
+      if(sb&&SESSION&&it){ try{ await sb.from("listing_dismissals").insert({user_id:SESSION.user.id,item_id:it.item_id}); }catch(e){} }
+      LB=LB.filter(x=>String(x.item_id)!==String(id));
+      g.items=g.items.filter(x=>String(x.item_id)!==String(id));
+      const card=body.querySelector(`.gcard[data-item="${CSS.escape(id)}"]`);
+      if(card){ card.classList.add("gone"); card.querySelectorAll("button,a").forEach(el=>el.style.pointerEvents="none"); }
+      renderLetsBuy();
+    });
+  }
+  document.getElementById("gov").classList.add("on");
+  document.getElementById("gmodal").classList.add("on");
+}
 
 async function boot(){
   try{
@@ -1241,6 +1299,8 @@ async function boot(){
     document.getElementById("bov").onclick=closeLetsBuy;
     document.getElementById("lClose").onclick=closeListing;
     document.getElementById("lov").onclick=closeListing;
+    document.getElementById("gClose").onclick=closeGallery;
+    document.getElementById("gov").onclick=closeGallery;
     document.querySelector("#tbl tbody").addEventListener("click",e=>{
       const tr=e.target.closest("tr[data-i]"); if(!tr) return;
       const r=VIEW[+tr.dataset.i]; if(!r) return;
