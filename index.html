@@ -1114,9 +1114,12 @@ function absTime(iso){ if(!iso) return ""; const d=new Date(iso); return isNaN(d
 const binOf=it=>{const b=(it.buying_options||"");return b.includes("FIXED_PRICE")?"B":(b.includes("AUCTION")?"A":"");};
 function isBinDeal(it,g){
   if(!(it.buying_options||"").includes("FIXED_PRICE")) return false;   // deal flag is Buy-It-Now only
+  const t=new Date(it.first_seen).getTime();
+  if(isNaN(t) || (Date.now()-t) > FIRECFG.hours*3600*1000) return false;   // freshness window (adjustable)
   const p=num(it.price); if(p==null||p<=0) return false;
+  const thr=1-(FIRECFG.pct/100);
   const paid=num(g.paidAvg), raw=num(g.raw);
-  return (paid!=null && p<=paid*0.8) || (raw!=null && p<=raw*0.8);     // ≥20% below your paid or market raw
+  return (FIRECFG.vsPaid && paid!=null && p<=paid*thr) || (FIRECFG.vsRaw && raw!=null && p<=raw*thr);
 }
 const tyBadge=t=>t==="B"?`<span style="font-weight:700;color:#1c5a99;background:#e7edff;padding:1px 6px;border-radius:5px">B</span>`
   :t==="A"?`<span style="font-weight:700;color:#8a6d00;background:#fff2d9;padding:1px 6px;border-radius:5px">A</span>`:`<span class="muted">—</span>`;
@@ -1149,6 +1152,11 @@ function loadLBL(){ let p={}; try{p=JSON.parse(localStorage.getItem(LBLKEY)||"{}
   return {order, hidden:p.hidden||{}, widths:p.widths||{}}; }
 function saveLBL(p){ try{localStorage.setItem(LBLKEY,JSON.stringify(p));}catch(e){} }
 let LBL=loadLBL();
+// adjustable 🔥 fire-deal rule
+const FIREKEY="voltdash.firecfg";
+function loadFire(){ let d={pct:20,hours:6,vsPaid:true,vsRaw:true}; try{Object.assign(d,JSON.parse(localStorage.getItem(FIREKEY)||"{}"));}catch(e){} return d; }
+function saveFire(){ try{localStorage.setItem(FIREKEY,JSON.stringify(FIRECFG));}catch(e){} }
+let FIRECFG=loadFire();
 function renderLetsBuy(){
   const body=document.getElementById("bbody");
   pcolStyle();
@@ -1174,8 +1182,11 @@ function renderLetsBuy(){
   if(!groups.length){ body.innerHTML='<p class="note">No active raw listings right now. The background refresh runs every 30 min — check back soon, or add more favorites (☆ on any card).</p>'; return; }
   const cols=LBL.order.map(k=>LBCOLS.find(c=>c[0]===k)).filter(c=>c && !LBL.hidden[c[0]]);
   const menu=LBL.order.map(k=>{const c=LBCOLS.find(x=>x[0]===k);return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${LBL.hidden[k]?"":"checked"}> ${c[1]}</label>`;}).join("");
-  let h='<div class="ptools"><div class="note" style="margin:0;max-width:640px">Raw listings for your ⭐ favorites (Buy It Now + auctions), refreshed every 30 min. <b>🔥</b> = a Buy It Now ≥20% below your avg paid or the market raw. <b>B</b>=Buy It Now, <b>A</b>=Auction. Click a card to expand; drag headers to reorder, ⚙ to hide columns.</div>';
-  h+=`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
+  let h=`<div class="ptools"><div class="note" style="margin:0;max-width:600px">Raw listings for your ⭐ favorites (Buy It Now + auctions), refreshed every 30 min. <b>🔥</b> = a Buy It Now ≥${FIRECFG.pct}% below your avg paid/market raw, listed &lt;${FIRECFG.hours}h ago (adjust with 🔥 Rules). <b>B</b>=Buy It Now, <b>A</b>=Auction.</div>`;
+  h+=`<div style="display:flex;gap:8px;align-items:flex-start">`
+    +`<div class="pcolwrap"><button class="pbtn" id="fireBtn">🔥 Rules</button><div class="pcmenu" id="fireMenu" style="display:none;min-width:236px"><div class="pchint">🔥 flags a Buy It Now priced at least X% below your avg paid or the market raw, listed within the last N hours.</div><label class="pcitem" style="justify-content:space-between">Discount % below <input id="fPct" type="number" min="1" max="99" value="${FIRECFG.pct}" style="width:60px"></label><label class="pcitem" style="justify-content:space-between">Listed within (hrs) <input id="fHrs" type="number" min="1" max="336" value="${FIRECFG.hours}" style="width:60px"></label><label class="pcitem"><input type="checkbox" id="fPaid" ${FIRECFG.vsPaid?"checked":""}> vs your avg paid</label><label class="pcitem"><input type="checkbox" id="fRaw" ${FIRECFG.vsRaw?"checked":""}> vs market raw</label><button class="pbtn" id="fireSave" style="margin-top:8px;width:100%">💾 Save &amp; refresh</button></div></div>`
+    +`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div>`
+    +`</div></div>`;
   h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c[0]}"${LBL.widths[c[0]]?` style="width:${LBL.widths[c[0]]}px"`:""}>${c[1]}</th>`).join("")+'</tr></thead><tbody>';
   groups.forEach((g,gi)=>{
     h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+cols.map(c=>`<td>${c[2](g,gi)}</td>`).join("")+`</tr>`;
@@ -1197,6 +1208,18 @@ function renderLetsBuy(){
   });
   const cbtn=body.querySelector("#lbcolBtn"), cmnu=body.querySelector("#lbcolMenu");
   if(cbtn) cbtn.onclick=()=>{ cmnu.style.display=cmnu.style.display==="none"?"block":"none"; };
+  const firebtn=body.querySelector("#fireBtn"), firemnu=body.querySelector("#fireMenu");
+  if(firebtn) firebtn.onclick=()=>{ firemnu.style.display=firemnu.style.display==="none"?"block":"none"; };
+  const firesave=body.querySelector("#fireSave");
+  if(firesave) firesave.onclick=()=>{
+    FIRECFG.pct=Math.max(1,Math.min(99,parseFloat(body.querySelector("#fPct").value)||20));
+    FIRECFG.hours=Math.max(1,Math.min(336,parseFloat(body.querySelector("#fHrs").value)||6));
+    FIRECFG.vsPaid=body.querySelector("#fPaid").checked;
+    FIRECFG.vsRaw=body.querySelector("#fRaw").checked;
+    if(!FIRECFG.vsPaid && !FIRECFG.vsRaw) FIRECFG.vsRaw=true;   // keep at least one basis
+    saveFire();
+    openLetsBuy();   // re-fetch latest listings + recompute fire flags
+  };
   body.querySelectorAll("#lbcolMenu input[data-col]").forEach(cb=>cb.onchange=()=>{ LBL.hidden[cb.dataset.col]=!cb.checked; saveLBL(LBL); renderLetsBuy(); body.querySelector("#lbcolMenu").style.display="block"; });
   const rst=body.querySelector("#lbcolReset");
   if(rst) rst.onclick=()=>{ LBL={order:LBCOLS.map(c=>c[0]),hidden:{},widths:{}}; saveLBL(LBL); renderLetsBuy(); };
@@ -1217,7 +1240,9 @@ function openListing(it){
   document.getElementById("lTitle").textContent=it.name||it.title||"Listing";
   const prof=lbEstProfit(it), pct=it.seller_feedback_pct, sc=it.seller_feedback_score;
   const isBin=(it.buying_options||"").includes("FIXED_PRICE");
-  const deal=isBin && ((num(it.paid_avg)!=null && num(it.price)<=num(it.paid_avg)*0.8) || (num(it.raw)!=null && num(it.price)<=num(it.raw)*0.8));
+  const fresh6=!isNaN(new Date(it.first_seen).getTime()) && (Date.now()-new Date(it.first_seen).getTime())<=FIRECFG.hours*3600*1000;
+  const fthr=1-(FIRECFG.pct/100);
+  const deal=isBin && fresh6 && ((FIRECFG.vsPaid && num(it.paid_avg)!=null && num(it.price)<=num(it.paid_avg)*fthr) || (FIRECFG.vsRaw && num(it.raw)!=null && num(it.price)<=num(it.raw)*fthr));
   document.getElementById("lBody").innerHTML=`
     <div class="cardimg">${it.image_url?`<img src="${escH(it.image_url)}" alt="">`:""}</div>
     <div style="font-size:18px;font-weight:700;margin:2px 0 6px">${deal?"🔥 ":""}${money2(it.price)} <span class="muted" style="font-size:12px;font-weight:400">${isBin?"Buy It Now":((it.buying_options||"").includes("AUCTION")?"Auction":"")}</span></div>
