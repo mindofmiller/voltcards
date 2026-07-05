@@ -1078,10 +1078,55 @@ async function openLetsBuy(){
     LB=data||[]; renderLetsBuy();
   }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
 }
+function timeAgo(iso){ if(!iso) return "—"; const t=new Date(iso).getTime(); if(isNaN(t)) return "—";
+  const s=Math.max(0,(Date.now()-t)/1000);
+  if(s<90) return "just now";
+  if(s<3600) return Math.round(s/60)+"m ago";
+  if(s<86400) return Math.round(s/3600)+"h ago";
+  return Math.round(s/86400)+"d ago"; }
+function absTime(iso){ if(!iso) return ""; const d=new Date(iso); return isNaN(d.getTime())?"":d.toLocaleString(); }
+// listing type + deal helpers
+const binOf=it=>{const b=(it.buying_options||"");return b.includes("FIXED_PRICE")?"B":(b.includes("AUCTION")?"A":"");};
+function isBinDeal(it,g){
+  if(!(it.buying_options||"").includes("FIXED_PRICE")) return false;   // deal flag is Buy-It-Now only
+  const p=num(it.price); if(p==null||p<=0) return false;
+  const paid=num(g.paidAvg), raw=num(g.raw);
+  return (paid!=null && p<=paid*0.8) || (raw!=null && p<=raw*0.8);     // ≥20% below your paid or market raw
+}
+const tyBadge=t=>t==="B"?`<span style="font-weight:700;color:#1c5a99;background:#e7edff;padding:1px 6px;border-radius:5px">B</span>`
+  :t==="A"?`<span style="font-weight:700;color:#8a6d00;background:#fff2d9;padding:1px 6px;border-radius:5px">A</span>`:`<span class="muted">—</span>`;
+// columns: [key,label, group-cell(g), listing-cell(it,g)]
+const LBCOLS=[
+  ["card","Card", g=>`${g.hasDeal?"🔥 ":""}${escH(g.rep.name||g.rep.title)} <span class="muted">${escH(g.rep.parallel||"")}</span>`,
+    (it,g)=>`<span style="padding-left:16px">${isBinDeal(it,g)?"🔥 ":""}<img src="${escH(it.image_url||"")}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;vertical-align:middle;margin-right:6px">${escH((it.title||"").slice(0,52))}</span>`],
+  ["type","Type", ()=>"", it=>tyBadge(binOf(it))],
+  ["price","Price", g=>money2(g.minPrice), (it,g)=>`${isBinDeal(it,g)?"🔥 ":""}${money2(it.price)}`],
+  ["paid","Avg paid", g=>g.paidAvg==null?"—":money2(g.paidAvg), ()=>""],
+  ["profit","Est profit", g=>g.bestProfit==null?"—":`<span class="${g.bestProfit>=0?'pos':'neg'}">${money2(g.bestProfit)}</span>`,
+    it=>{const p=lbEstProfit(it);return p==null?"—":`<span class="${p>=0?'pos':'neg'}">${money2(p)}</span>`;}],
+  ["raw","Raw ref", g=>g.raw==null?"—":money2(g.raw), ()=>""],
+  ["psa10","PSA10 ref", g=>g.rep.psa10==null?"—":money2(g.rep.psa10), ()=>""],
+  ["b1","≤1h", g=>`<span class="bkt${g.c1>0?' hot':''}">${g.c1}</span>`, ()=>""],
+  ["b6","≤6h", g=>`<span class="bkt${g.c6>0?' hot':''}">${g.c6}</span>`, ()=>""],
+  ["b12","≤12h", g=>`<span class="bkt">${g.c12}</span>`, ()=>""],
+  ["b24","≤24h", g=>`<span class="bkt">${g.c24}</span>`, ()=>""],
+  ["total","Total", g=>`<b>${g.total}</b>`, ()=>""],
+  ["listed","Listed", ()=>"", it=>`<span class="muted" title="${escH(absTime(it.first_seen))}">🕒 ${timeAgo(it.first_seen)}</span>`],
+  ["seller","Seller", ()=>"", it=>`<span class="muted">${escH(it.seller_username||"?")} · ${it.seller_feedback_score==null?"—":(+it.seller_feedback_score).toLocaleString()} · ${it.seller_feedback_pct==null?"—":it.seller_feedback_pct+"%"}</span>`],
+  ["set","Set", g=>escH((g.rep.set_name||"").replace(" (EN)","")), ()=>""],
+  ["num","#", g=>escH(g.rep.card_number||"—"), ()=>""],
+];
+const LBLKEY="voltdash.lbcols";
+function loadLBL(){ let p={}; try{p=JSON.parse(localStorage.getItem(LBLKEY)||"{}");}catch(e){}
+  const def=LBCOLS.map(c=>c[0]); let order=Array.isArray(p.order)?p.order.filter(k=>def.includes(k)):[];
+  def.forEach(k=>{ if(!order.includes(k)) order.push(k); });
+  return {order, hidden:p.hidden||{}, widths:p.widths||{}}; }
+function saveLBL(p){ try{localStorage.setItem(LBLKEY,JSON.stringify(p));}catch(e){} }
+let LBL=loadLBL();
 function renderLetsBuy(){
   const body=document.getElementById("bbody");
+  pcolStyle();
   const now=Date.now(), H=3600*1000;
-  const money0=v=>v==null?"—":"$"+(+v).toLocaleString(undefined,{maximumFractionDigits:0});
   const gm={};
   LB.forEach(it=>{ const k=[it.game,it.set_name,it.card_number,it.parallel].join("¦");
     (gm[k]||(gm[k]={rep:it,items:[]})).items.push(it); });
@@ -1092,35 +1137,46 @@ function renderLetsBuy(){
       if(age<=H)g.c1++; if(age<=6*H)g.c6++; if(age<=12*H)g.c12++; if(age<=24*H)g.c24++; });
     g.total=g.items.length;
     g.minPrice=Math.min.apply(null,g.items.map(it=>num(it.price)));
-    g.items.sort((a,b)=>num(a.price)-num(b.price));   // stable order for row indexing
+    g.paidAvg=num(g.rep.paid_avg); g.raw=num(g.rep.raw);
+    g.items.sort((a,b)=>num(a.price)-num(b.price));
+    g.hasDeal=g.items.some(it=>isBinDeal(it,g));
+    let bp=Math.max.apply(null,g.items.map(it=>{const p=lbEstProfit(it);return p==null?-1e9:p;}));
+    g.bestProfit=bp<=-1e9?null:bp;
   });
-  groups.sort((a,b)=> b.c1-a.c1 || b.c6-a.c6 || b.total-a.total);
+  groups.sort((a,b)=> (b.hasDeal?1:0)-(a.hasDeal?1:0) || b.c1-a.c1 || b.c6-a.c6 || b.total-a.total);
   LBGROUPS=groups;
   if(!groups.length){ body.innerHTML='<p class="note">No active raw listings right now. The background refresh runs every 30 min — check back soon, or add more favorites (☆ on any card).</p>'; return; }
-  const bcell=(n,hot)=>`<td><span class="bkt${hot&&n>0?' hot':''}">${n}</span></td>`;
-  let h='<div class="note">Raw (ungraded) active listings for your ⭐ favorites, refreshed every 30 min. Count columns are new arrivals within each window. Click a card to expand its listings, then a listing for full details.</div>';
-  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th></th><th>Card</th><th>Set</th><th>PSA10 ref</th><th>Cheapest</th><th title="new in last hour">≤1h</th><th>≤6h</th><th>≤12h</th><th>≤24h</th><th>Total</th></tr></thead><tbody>';
+  const cols=LBL.order.map(k=>LBCOLS.find(c=>c[0]===k)).filter(c=>c && !LBL.hidden[c[0]]);
+  const menu=LBL.order.map(k=>{const c=LBCOLS.find(x=>x[0]===k);return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${LBL.hidden[k]?"":"checked"}> ${c[1]}</label>`;}).join("");
+  let h='<div class="ptools"><div class="note" style="margin:0;max-width:640px">Raw listings for your ⭐ favorites (Buy It Now + auctions), refreshed every 30 min. <b>🔥</b> = a Buy It Now ≥20% below your avg paid or the market raw. <b>B</b>=Buy It Now, <b>A</b>=Auction. Click a card to expand; drag headers to reorder, ⚙ to hide columns.</div>';
+  h+=`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div></div>`;
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c[0]}"${LBL.widths[c[0]]?` style="width:${LBL.widths[c[0]]}px"`:""}>${c[1]}</th>`).join("")+'</tr></thead><tbody>';
   groups.forEach((g,gi)=>{
-    const r=g.rep;
-    h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+
-       `<td>${escH(r.name||r.title)} <span class="muted">${escH(r.parallel||"")}</span></td>`+
-       `<td>${escH((r.set_name||"").replace(" (EN)",""))}</td>`+
-       `<td>${money0(r.psa10)}</td><td>${money2(g.minPrice)}</td>`+
-       bcell(g.c1,true)+bcell(g.c6,true)+bcell(g.c12,false)+bcell(g.c24,false)+
-       `<td><b>${g.total}</b></td></tr>`;
+    h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+cols.map(c=>`<td>${c[2](g)}</td>`).join("")+`</tr>`;
     g.items.forEach((it,ii)=>{
-      const prof=lbEstProfit(it);
-      h+=`<tr class="lirow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td>`+
-         `<td colspan="3" style="padding-left:22px"><img src="${escH(it.image_url||"")}" style="width:26px;height:26px;object-fit:cover;border-radius:5px;vertical-align:middle;margin-right:8px">${escH((it.title||"").slice(0,58))}</td>`+
-         `<td>${money2(it.price)}</td>`+
-         `<td colspan="4" class="muted">${escH(it.seller_username||"?")} · ${it.seller_feedback_score==null?"—":(+it.seller_feedback_score).toLocaleString()} rev · ${it.seller_feedback_pct==null?"—":it.seller_feedback_pct+"%"}</td>`+
-         `<td>${prof==null?"—":`<span class="${prof>=0?'pos':'neg'}">${money2(prof)}</span>`}</td></tr>`;
+      h+=`<tr class="lirow" data-gi="${gi}" data-ii="${ii}" hidden style="background:#fafbff;cursor:pointer"><td></td>`+cols.map(c=>`<td>${c[3](it,g)}</td>`).join("")+`</tr>`;
     });
   });
   h+='</tbody></table></div>';
   body.innerHTML=h;
+  const table=body.querySelector("table.ptbl");
+  makeResizable(table,(k,w)=>{ LBL.widths[k]=w; saveLBL(LBL); });
+  let dragKey=null;
+  table.querySelectorAll("thead th[data-key]").forEach(th=>{
+    th.addEventListener("dragstart",e=>{ dragKey=th.dataset.key; e.dataTransfer.effectAllowed="move"; });
+    th.addEventListener("dragover",e=>{ e.preventDefault(); th.style.boxShadow="inset 3px 0 0 #5566ff"; });
+    th.addEventListener("dragleave",()=>{ th.style.boxShadow=""; });
+    th.addEventListener("drop",e=>{ e.preventDefault(); th.style.boxShadow=""; const tgt=th.dataset.key; if(!dragKey||dragKey===tgt) return;
+      const o=LBL.order.slice(); o.splice(o.indexOf(dragKey),1); o.splice(o.indexOf(tgt),0,dragKey); LBL.order=o; saveLBL(LBL); renderLetsBuy(); });
+  });
+  const cbtn=body.querySelector("#lbcolBtn"), cmnu=body.querySelector("#lbcolMenu");
+  if(cbtn) cbtn.onclick=()=>{ cmnu.style.display=cmnu.style.display==="none"?"block":"none"; };
+  body.querySelectorAll("#lbcolMenu input[data-col]").forEach(cb=>cb.onchange=()=>{ LBL.hidden[cb.dataset.col]=!cb.checked; saveLBL(LBL); renderLetsBuy(); body.querySelector("#lbcolMenu").style.display="block"; });
+  const rst=body.querySelector("#lbcolReset");
+  if(rst) rst.onclick=()=>{ LBL={order:LBCOLS.map(c=>c[0]),hidden:{},widths:{}}; saveLBL(LBL); renderLetsBuy(); };
   const tb=body.querySelector("tbody");
   tb.addEventListener("click",e=>{
+    if(e.target.closest("a")) return;
     const gr=e.target.closest("tr.lgrow");
     if(gr){ const kids=body.querySelectorAll(`tr.lirow[data-gi="${gr.dataset.gi}"]`);
       const show=kids.length&&kids[0].hidden; kids.forEach(x=>x.hidden=!show);
@@ -1133,20 +1189,26 @@ function openListing(it){
   if(!it) return;
   document.getElementById("lTitle").textContent=it.name||it.title||"Listing";
   const prof=lbEstProfit(it), pct=it.seller_feedback_pct, sc=it.seller_feedback_score;
+  const isBin=(it.buying_options||"").includes("FIXED_PRICE");
+  const deal=isBin && ((num(it.paid_avg)!=null && num(it.price)<=num(it.paid_avg)*0.8) || (num(it.raw)!=null && num(it.price)<=num(it.raw)*0.8));
   document.getElementById("lBody").innerHTML=`
     <div class="cardimg">${it.image_url?`<img src="${escH(it.image_url)}" alt="">`:""}</div>
-    <div style="font-size:18px;font-weight:700;margin:2px 0 6px">${money2(it.price)}</div>
+    <div style="font-size:18px;font-weight:700;margin:2px 0 6px">${deal?"🔥 ":""}${money2(it.price)} <span class="muted" style="font-size:12px;font-weight:400">${isBin?"Buy It Now":((it.buying_options||"").includes("AUCTION")?"Auction":"")}</span></div>
     <div class="note" style="margin:0 0 10px">${escH(it.title||"")}</div>
     <div class="kv">
       <div class="k">Card</div><div class="v">${escH(it.name||"")} ${escH(it.parallel||"")}</div>
       <div class="k">Set</div><div class="v">${escH((it.set_name||"").replace(" (EN)",""))}</div>
       <div class="k">Card #</div><div class="v">${escH(it.card_number||"—")}</div>
       <div class="k">Condition</div><div class="v">${escH(it.condition||"—")}</div>
+      <div class="k">Type</div><div class="v">${isBin?"Buy It Now (B)":((it.buying_options||"").includes("AUCTION")?"Auction (A)":"—")}</div>
       <div class="k">Seller</div><div class="v">${escH(it.seller_username||"—")}</div>
       <div class="k">Seller reviews</div><div class="v">${sc==null?"—":(+sc).toLocaleString()}${pct==null?"":" · "+pct+"% pos"}</div>
+      <div class="k">Listed</div><div class="v">${timeAgo(it.first_seen)}${it.first_seen?` <span class="muted">(${escH(absTime(it.first_seen))})</span>`:""}</div>
       <div class="k">Gem rate</div><div class="v">${it.gem_rate==null?"—":Math.round(num(it.gem_rate)*100)+"%"}</div>
       <div class="k">PSA 10 ref</div><div class="v">${money2(it.psa10)}</div>
+      <div class="k">Raw ref</div><div class="v">${money2(it.raw)}</div>
       <div class="k">PSA 9 ref</div><div class="v">${money2(it.psa9)}</div>
+      <div class="k">Avg you paid</div><div class="v">${it.paid_avg==null?"—":money2(it.paid_avg)}</div>
       <div class="k">Est. profit @ this price</div><div class="v">${prof==null?"—":`<span class="${prof>=0?'pos':'neg'}">${money2(prof)}</span>`}</div>
     </div>
     <a class="ebtn primary" href="${escH(it.url||"#")}" target="_blank" rel="noopener">🔎 View / Buy on eBay ↗</a>
