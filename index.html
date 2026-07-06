@@ -805,7 +805,8 @@ async function openFavorites(){
   const counts={};
   try{
     const since=new Date(Date.now()-24*3600*1000).toISOString();
-    const rows=await rest(`ebay_listings?first_seen=gte.${since}&select=game,set_name,card_number,parallel,grade,first_seen&limit=100000`);
+    const liveSince=new Date(Date.now()-90*60*1000).toISOString();   // only count listings still live (re-seen in last ~90 min); sold/ended drop off
+    const rows=await rest(`ebay_listings?first_seen=gte.${since}&last_seen=gte.${liveSince}&select=game,set_name,card_number,parallel,grade,first_seen&limit=100000`);
     const s6=Date.now()-6*3600*1000;
     (rows||[]).forEach(x=>{ const k=[x.game,x.set_name,x.card_number,x.parallel].join("¦")+"|"+x.grade;
       const c=counts[k]||(counts[k]={d24:0,h6:0}); c.d24++; if(new Date(x.first_seen).getTime()>=s6) c.h6++; });
