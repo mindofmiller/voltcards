@@ -183,12 +183,25 @@ tr.out:hover td{background:#dff0e4}
 .gbtns .gbuy{color:#1c5a99}
 .gbtns .gbuy:hover{background:#eef3ff}
 .gbtn{padding:3px 8px;font-size:12px}
+/* top nav (Discover / Buy) + Buy sub-tabs */
+.topnav{display:flex;gap:8px;margin:2px 0 12px}
+.navbtn{padding:8px 20px;border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;font-size:14px;font-weight:700;color:var(--muted)}
+.navbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.buytabs{display:flex;gap:8px;margin:2px 0 14px}
+.subtab{padding:6px 16px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
+.subtab.on{background:#1a2233;border-color:#1a2233;color:#fff}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div style="display:flex;align-items:center;gap:16px;margin:2px 0 8px"><img src="volt-logo.png" alt="Volt's Pokédex" style="height:104px;width:auto;display:block"><span style="font-size:20px;font-weight:700;color:#1a2233;letter-spacing:.01em">Volt's Pokédex</span></div>
   <div id="authbar" class="authbar"></div>
+  <div class="topnav" id="topnav">
+    <button class="navbtn on" data-view="discover">🔍 Discover</button>
+    <button class="navbtn" data-view="buy">🛒 Buy</button>
+  </div>
+
+  <div id="discoverView">
   <div class="sub" id="sub">Loading…</div>
 
   <div class="seasons" id="seasons">
@@ -197,20 +210,9 @@ tr.out:hover td{background:#dff0e4}
     <span class="chip" data-season="2024">2024 sets</span>
     <span class="chip" data-season="2023">2023 sets</span>
     <button id="favBtnTop" class="pbtn">⭐ Favorites</button>
-    <button id="letsBuyBtn" class="pbtn">🛒 Let's buy!</button>
-    <button id="purchasedBtn" class="pbtn">📦 Purchased</button>
   </div>
   <div class="topsearch" style="margin:10px 0 4px"><input type="text" id="q" placeholder="🔍 Search name / parallel / #  —  any order (e.g. luffy voyage 55)" style="width:100%;padding:11px 14px;font-size:15px;border:1px solid #d6d9e6;border-radius:10px;box-sizing:border-box"></div>
-  <div id="pov" class="povl"></div>
-  <div id="pmodal"><header><h2>📦 Purchased cards</h2><div class="phdr"><button id="addPurchaseBtn" class="pbtn">➕ Add</button><button class="close" id="pClose">×</button></div></header><div class="addform" id="addForm" style="display:none"></div><div class="pbody" id="pbody"></div></div>
-  <div id="fov" class="povl"></div>
-  <div id="fmodal"><header><h2>⭐ Favorites</h2><button class="close" id="fClose">×</button></header><div class="pbody" id="fbody"></div></div>
-  <div id="bov" class="povl"></div>
-  <div id="bmodal"><header><h2>🛒 Let's buy! — raw listings for your favorites</h2><button class="close" id="bClose">×</button></header><div class="pbody" id="bbody"></div></div>
-  <div id="lov"></div>
-  <aside id="lside"><header><h2 id="lTitle">Listing</h2><button class="close" id="lClose">×</button></header><div class="body" id="lBody"></div></aside>
-  <div id="gov"></div>
-  <div id="gmodal"><header><h2 id="gTitle">New listings</h2><button class="close" id="gClose">×</button></header><div class="pbody" id="gbody"></div></div>
+  <!-- overlays relocated below (outside the Discover/Buy view containers so they show on any page) -->
 
   <div class="card" style="margin-bottom:14px">
     <div id="filterHdr" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
@@ -276,7 +278,28 @@ tr.out:hover td{background:#dff0e4}
     <div class="chartbox"><canvas id="scatter"></canvas></div>
   </div>
   <footer id="foot"></footer>
+  </div><!-- /discoverView -->
+
+  <div id="buyView" style="display:none">
+    <div class="buytabs">
+      <button class="subtab on" id="subLetsBuy" data-sub="letsbuy">🛒 Let's Buy</button>
+      <button class="subtab" id="subPurchased" data-sub="purchased">📦 Purchased</button>
+    </div>
+    <div id="buyLetsBuy"><div class="pbody" id="bbody" style="padding:0"></div></div>
+    <div id="buyPurchased" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button id="addPurchaseBtn" class="pbtn">➕ Add purchase</button></div>
+      <div class="addform" id="addForm" style="display:none;border:1px solid var(--line);border-radius:10px"></div>
+      <div class="pbody" id="pbody" style="padding:0"></div>
+    </div>
+  </div>
 </div>
+
+<div id="fov" class="povl"></div>
+<div id="fmodal"><header><h2>⭐ Favorites</h2><button class="close" id="fClose">×</button></header><div class="pbody" id="fbody"></div></div>
+<div id="lov"></div>
+<aside id="lside"><header><h2 id="lTitle">Listing</h2><button class="close" id="lClose">×</button></header><div class="body" id="lBody"></div></aside>
+<div id="gov"></div>
+<div id="gmodal"><header><h2 id="gTitle">New listings</h2><button class="close" id="gClose">×</button></header><div class="pbody" id="gbody"></div></div>
 
 <div id="ov"></div>
 <aside id="side">
@@ -795,7 +818,7 @@ async function applyDoubleCheck(r){
 
 // ---- Purchased view ----
 let PURCH=[], FAVVIEW=[];
-function closePurchases(){ document.getElementById("pov").classList.remove("on"); document.getElementById("pmodal").classList.remove("on"); }
+function closePurchases(){}   // Purchased is now an inline Buy sub-tab (no modal)
 function closeFav(){ document.getElementById("fov").classList.remove("on"); document.getElementById("fmodal").classList.remove("on"); }
 function ebayNewUrl(r,grade){
   let kw=[r.name,r.parallel,r.card_number].filter(Boolean).join(" ").replace(/\(EN\)/gi,"").trim();
@@ -831,8 +854,6 @@ async function openFavorites(){
   if(tb) tb.addEventListener("click",e=>{ if(e.target.closest("a")) return; const tr=e.target.closest("tr[data-fi]"); if(tr){ closeFav(); openCard(FAVVIEW[+tr.dataset.fi]); }});
 }
 async function openPurchases(){
-  document.getElementById("pov").classList.add("on");
-  document.getElementById("pmodal").classList.add("on");
   const body=document.getElementById("pbody");
   if(!sb||!SESSION){ body.innerHTML='<p class="note">Sign in (top-right) to see the cards you\'ve purchased.</p>'; return; }
   body.innerHTML='<p class="note">Loading…</p>';
@@ -1093,7 +1114,24 @@ async function addBulk(){
 
 // ---- "Let's buy!" : active raw listings for favorites ----
 let LB=[], LBGROUPS=[];
-function closeLetsBuy(){ document.getElementById("bov").classList.remove("on"); document.getElementById("bmodal").classList.remove("on"); }
+function closeLetsBuy(){}   // Let's Buy is now an inline Buy sub-tab (no modal)
+let BUYSUB="letsbuy";
+function showView(v){
+  const disc=v!=="buy";
+  document.getElementById("discoverView").style.display=disc?"":"none";
+  document.getElementById("buyView").style.display=disc?"none":"";
+  document.querySelectorAll("#topnav .navbtn").forEach(b=>b.classList.toggle("on", b.dataset.view===(disc?"discover":"buy")));
+  localStorage.setItem("voltdash.view", disc?"discover":"buy");
+  if(!disc) showBuySub(BUYSUB);
+}
+function showBuySub(s){
+  BUYSUB=s; const lb=s==="letsbuy";
+  document.getElementById("buyLetsBuy").style.display=lb?"":"none";
+  document.getElementById("buyPurchased").style.display=lb?"none":"";
+  document.getElementById("subLetsBuy").classList.toggle("on", lb);
+  document.getElementById("subPurchased").classList.toggle("on", !lb);
+  if(lb) openLetsBuy(); else openPurchases();
+}
 function closeListing(){ document.getElementById("lov").classList.remove("on"); document.getElementById("lside").classList.remove("on"); }
 function lbEstProfit(it){
   const gr=num(it.gem_rate), p9=num(it.psa9), p10=num(it.psa10), price=num(it.price);
@@ -1101,15 +1139,20 @@ function lbEstProfit(it){
   return (gr*p10+(1-gr)*p9)*0.88 - costFor(price) - price;
 }
 async function openLetsBuy(){
-  document.getElementById("bov").classList.add("on");
-  document.getElementById("bmodal").classList.add("on");
   const body=document.getElementById("bbody");
   if(!sb||!SESSION){ body.innerHTML='<p class="note">Sign in (top-right) to see buy candidates for your ⭐ favorites.</p>'; return; }
   body.innerHTML='<p class="note">Loading active listings for your favorites…</p>';
   try{
     const {data,error}=await sb.rpc("lets_buy_listings");
     if(error){ body.innerHTML='<p class="err">'+error.message+'</p>'; return; }
-    LB=data||[]; renderLetsBuy();
+    LB=data||[];
+    // auto-dismiss listings from zero-review sellers (treated as "not interested")
+    const zero=LB.filter(it=>it.seller_feedback_score!=null && Number(it.seller_feedback_score)===0);
+    if(zero.length){
+      try{ await sb.from("listing_dismissals").insert(zero.map(it=>({user_id:SESSION.user.id,item_id:it.item_id}))); }catch(e){}
+      const ids=new Set(zero.map(it=>it.item_id)); LB=LB.filter(it=>!ids.has(it.item_id));
+    }
+    renderLetsBuy();
   }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
 }
 function timeAgo(iso){ if(!iso) return "—"; const t=new Date(iso).getTime(); if(isNaN(t)) return "—";
@@ -1352,20 +1395,18 @@ async function boot(){
       apply(); hdr.onclick=()=>{ open=!open; localStorage.setItem("voltdash.filtersOpen", open?"1":"0"); apply(); }; })();
     document.getElementById("sClose").onclick=closeSide;
     document.getElementById("ov").onclick=closeSide;
-    document.getElementById("purchasedBtn").onclick=openPurchases;
-    document.getElementById("pClose").onclick=closePurchases;
-    document.getElementById("pov").onclick=closePurchases;
     document.getElementById("addPurchaseBtn").onclick=openAddForm;
     document.getElementById("favBtnTop").onclick=openFavorites;
     document.getElementById("fClose").onclick=closeFav;
     document.getElementById("fov").onclick=closeFav;
-    document.getElementById("letsBuyBtn").onclick=openLetsBuy;
-    document.getElementById("bClose").onclick=closeLetsBuy;
-    document.getElementById("bov").onclick=closeLetsBuy;
     document.getElementById("lClose").onclick=closeListing;
     document.getElementById("lov").onclick=closeListing;
     document.getElementById("gClose").onclick=closeGallery;
     document.getElementById("gov").onclick=closeGallery;
+    document.querySelectorAll("#topnav .navbtn").forEach(b=>b.onclick=()=>showView(b.dataset.view));
+    document.getElementById("subLetsBuy").onclick=()=>showBuySub("letsbuy");
+    document.getElementById("subPurchased").onclick=()=>showBuySub("purchased");
+    showView(localStorage.getItem("voltdash.view")==="buy"?"buy":"discover");
     document.querySelector("#tbl tbody").addEventListener("click",e=>{
       const tr=e.target.closest("tr[data-i]"); if(!tr) return;
       const r=VIEW[+tr.dataset.i]; if(!r) return;
