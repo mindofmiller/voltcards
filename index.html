@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Volt's Pokédex</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%230b1f4d'/%3E%3Cpath%20d='M14%202%20L5%2013%20h5%20l-1%209%209-12%20h-5%20z'%20fill='%23ffd23f'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20d='M14%202%20L5%2013%20h5%20l-1%209%209-12%20h-5%20z'%20fill='%23ffd23f'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
@@ -895,7 +895,7 @@ async function openPurchases(){
   try{
     const {data,error}=await sb.from("my_purchases").select("*");
     if(error){ body.innerHTML='<p class="err">'+error.message+'</p>'; return; }
-    try{ const {data:sells}=await sb.from("card_transactions").select("txn_date,price").eq("type","sell"); PURCH_SELLS=sells||[]; }catch(e){ PURCH_SELLS=[]; }
+    try{ const {data:sells}=await sb.from("card_transactions").select("txn_date,price,game,set_name,card_number,parallel").eq("type","sell"); PURCH_SELLS=sells||[]; }catch(e){ PURCH_SELLS=[]; }
     renderPurchases(data||[]);
   }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
 }
@@ -974,26 +974,32 @@ function pcolStyle(){ if(document.getElementById("pcol-css")) return; const s=do
 let PURCH_SELLS=[], spendChartObj=null;
 function buildPurchaseTimeline(rows, sells){
   const cv=document.getElementById("spendChart"); if(!cv||typeof Chart==="undefined") return;
+  // cost basis for realized profit: avg paid per card from the buys
+  const cardPaid={};
+  rows.forEach(r=>{ const k=[r.game,r.set_name,r.card_number,r.parallel].join("¦"); (cardPaid[k]=cardPaid[k]||[]).push(+r.paid||0); });
+  const avgPaid=k=>{ const a=cardPaid[k]; return a&&a.length? a.reduce((s,v)=>s+v,0)/a.length : null; };
   const byDate={};
   const bump=(d,f,v)=>{ if(!d||!isFinite(v)) return; (byDate[d]=byDate[d]||{spend:0,est:0,act:0})[f]+=v; };
   rows.forEach(r=>{
-    const paid=+r.paid||0; bump(r.txn_date,"spend",paid);
-    const gr=+r.gem_rate, p9=+r.psa9, p10=+r.psa10;
-    const est=(r.gem_rate!=null&&r.psa9!=null&&r.psa10!=null)?(gr*p10+(1-gr)*p9)*0.88:paid;   // net resale est; fall back to paid when unpriced
-    bump(r.txn_date,"est",est);
+    bump(r.txn_date,"spend",+r.paid||0);
+    if(r.est_profit!=null) bump(r.txn_date,"est",+r.est_profit);   // estimated grading profit per card
   });
-  (sells||[]).forEach(s=>bump(s.txn_date,"act",+s.price||0));
+  (sells||[]).forEach(s=>{
+    const k=[s.game,s.set_name,s.card_number,s.parallel].join("¦"); const paid=avgPaid(k);
+    const cost=(paid!=null&&paid<50)?23:82; const basis=paid!=null?paid:0;
+    bump(s.txn_date,"act",(+s.price||0)*0.88 - cost - basis);        // realized profit = sale proceeds (net fee) − grading − cost basis
+  });
   const dates=Object.keys(byDate).sort();
   if(!dates.length) return;
   const anySell=(sells||[]).length>0;
-  let cs=0,ce=0,ca=0; const spend=[],estV=[],actV=[];
-  dates.forEach(d=>{ const o=byDate[d]; cs+=o.spend; ce+=o.est; ca+=o.act; spend.push(Math.round(cs)); estV.push(Math.round(ce)); actV.push(anySell?Math.round(ca):null); });
+  let cs=0,ce=0,ca=0; const spend=[],estP=[],actP=[];
+  dates.forEach(d=>{ const o=byDate[d]; cs+=o.spend; ce+=o.est; ca+=o.act; spend.push(Math.round(cs)); estP.push(Math.round(ce)); actP.push(anySell?Math.round(ca):null); });
   const line=(label,data,color,dash)=>({label,data,borderColor:color,backgroundColor:color,tension:.2,pointRadius:2,borderWidth:2,borderDash:dash||[],spanGaps:true});
   if(spendChartObj) spendChartObj.destroy();
   spendChartObj=new Chart(cv,{type:"line",data:{labels:dates,datasets:[
     line("Spend",spend,"#c14b3f"),
-    line("Estimated value",estV,"#2f9e57"),
-    line("Actual value",actV,"#3b5bdb",[5,4])
+    line("Est. profit",estP,"#2f9e57"),
+    line("Actual profit",actP,"#3b5bdb",[5,4])
   ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
     plugins:{legend:{position:"top"},tooltip:{callbacks:{label:c=>c.dataset.label+": "+(c.parsed.y==null?"—":"$"+c.parsed.y.toLocaleString())}}},
     scales:{y:{ticks:{callback:v=>"$"+v.toLocaleString()},grid:{color:"#eef0f6"}},x:{grid:{display:false}}}}});
@@ -1047,7 +1053,7 @@ function renderPurchases(rows){
     });
   });
   h+='</tbody></table></div>';
-  h+='<div class="card" style="margin-top:14px"><div style="font-weight:600;font-size:13px;margin-bottom:2px">📈 Spend vs. value over time</div><div class="note" style="margin:0 0 8px">Cumulative money in (Spend), estimated resale value if graded &amp; sold (Estimated), and realized proceeds from cards actually sold (Actual — fills in as sales are recorded).</div><div style="height:280px;position:relative"><canvas id="spendChart"></canvas></div></div>';
+  h+='<div class="card" style="margin-top:14px"><div style="font-weight:600;font-size:13px;margin-bottom:2px">📈 Spend vs. profit over time</div><div class="note" style="margin:0 0 8px">Cumulative money in (Spend), estimated grading profit if graded &amp; sold (Est. profit), and realized profit from cards actually sold (Actual profit — fills in as sales are recorded).</div><div style="height:280px;position:relative"><canvas id="spendChart"></canvas></div></div>';
   body.innerHTML=h;
   buildPurchaseTimeline(rows, PURCH_SELLS);
 
