@@ -1195,6 +1195,7 @@ function renderLetsBuy(){
   const menu=LBL.order.map(k=>{const c=LBCOLS.find(x=>x[0]===k);return `<label class="pcitem"><input type="checkbox" data-col="${k}" ${LBL.hidden[k]?"":"checked"}> ${c[1]}</label>`;}).join("");
   let h=`<div class="ptools"><div class="note" style="margin:0;max-width:600px">Raw listings for your ⭐ favorites (Buy It Now + auctions), refreshed every 30 min. <b>🔥</b> = a Buy It Now ≥${FIRECFG.pct}% below your avg paid/market raw, listed &lt;${FIRECFG.hours}h ago (adjust with 🔥 Rules). <b>B</b>=Buy It Now, <b>A</b>=Auction.</div>`;
   h+=`<div style="display:flex;gap:8px;align-items:flex-start">`
+    +`<button class="pbtn" id="lbRefresh" title="Re-check eBay now for sold/ignored items">🔄 Refresh</button>`
     +`<div class="pcolwrap"><button class="pbtn" id="fireBtn">🔥 Rules</button><div class="pcmenu" id="fireMenu" style="display:none;min-width:236px"><div class="pchint">🔥 flags a Buy It Now priced at least X% below your avg paid or the market raw, listed within the last N hours.</div><label class="pcitem" style="justify-content:space-between">Discount % below <input id="fPct" type="number" min="1" max="99" value="${FIRECFG.pct}" style="width:60px"></label><label class="pcitem" style="justify-content:space-between">Listed within (hrs) <input id="fHrs" type="number" min="1" max="336" value="${FIRECFG.hours}" style="width:60px"></label><label class="pcitem"><input type="checkbox" id="fPaid" ${FIRECFG.vsPaid?"checked":""}> vs your avg paid</label><label class="pcitem"><input type="checkbox" id="fRaw" ${FIRECFG.vsRaw?"checked":""}> vs market raw</label><button class="pbtn" id="fireSave" style="margin-top:8px;width:100%">💾 Save &amp; refresh</button></div></div>`
     +`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div>`
     +`</div></div>`;
@@ -1227,6 +1228,13 @@ function renderLetsBuy(){
       else LBL.sort={key:k,dir:(k==='card'||k==='set'||k==='num')?1:-1};
       saveLBL(LBL); renderLetsBuy(); });
   });
+  const rbtn=body.querySelector("#lbRefresh");
+  if(rbtn) rbtn.onclick=async()=>{
+    if(!sb||!SESSION){ openLetsBuy(); return; }
+    rbtn.disabled=true; rbtn.textContent="⏳ Checking eBay…";
+    try{ await sb.functions.invoke("refresh-favorites"); }catch(e){ /* still re-query below */ }
+    await openLetsBuy();   // re-query: sold items have aged out, ignores excluded, counts updated
+  };
   const cbtn=body.querySelector("#lbcolBtn"), cmnu=body.querySelector("#lbcolMenu");
   if(cbtn) cbtn.onclick=()=>{ cmnu.style.display=cmnu.style.display==="none"?"block":"none"; };
   const firebtn=body.querySelector("#fireBtn"), firemnu=body.querySelector("#fireMenu");
