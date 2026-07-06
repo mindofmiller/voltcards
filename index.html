@@ -190,6 +190,10 @@ tr.out:hover td{background:#dff0e4}
 .buytabs{display:flex;gap:8px;margin:2px 0 14px}
 .subtab{padding:6px 16px;border:1px solid var(--line);background:#fff;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted)}
 .subtab.on{background:#1a2233;border-color:#1a2233;color:#fff}
+/* card-image picker */
+.imgpick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 10px}
+.imgpick{width:100%;aspect-ratio:3/4;object-fit:cover;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:#eef1f8}
+.imgpick:hover{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,91,219,.25)}
 </style>
 </head>
 <body>
@@ -730,6 +734,8 @@ function openCard(r){
     </div>`;
   body.innerHTML=`
     <div class="cardimg" id="cardImg"></div>
+    <button class="ebtn" id="imgPickBtn" style="justify-content:center;margin-bottom:8px">🖼 <span id="imgPickLabel">Add image</span></button>
+    <div id="imgPicker"></div>
     <div class="kv">
       ${rowKV("Set", shortSet(r.set_name))}
       ${rowKV("Card #", r.card_number||"—")}
@@ -766,6 +772,7 @@ function openCard(r){
   const clr=document.getElementById("clrTrack"); if(clr) clr.onclick=()=>{ delete TRACK[keyOf(r)]; saveTrack(); syncCard(r); refresh(); };
   document.getElementById("inacBtn").onclick=()=>{ toggleInac(r); refresh(); };
   document.getElementById("dcBtn").onclick=()=>doubleCheck(r);
+  document.getElementById("imgPickBtn").onclick=()=>openImagePicker(r);
   loadCardImage(r);
   document.getElementById("ov").classList.add("on");
   document.getElementById("side").classList.add("on");
@@ -777,8 +784,36 @@ async function loadCardImage(r){
     const enc=encodeURIComponent;
     const q=`card_images?game=eq.${enc(r.game)}&set_name=eq.${enc(r.set_name)}&card_number=eq.${enc(r.card_number||"")}&parallel=eq.${enc(r.parallel||"")}&select=image_url&limit=1`;
     const d=await rest(q);
-    if(d&&d[0]&&d[0].image_url) el.innerHTML=`<img src="${d[0].image_url}" alt="${(r.name||"").replace(/"/g,"&quot;")}" loading="lazy">`;
+    const lbl=document.getElementById("imgPickLabel");
+    if(d&&d[0]&&d[0].image_url){ el.innerHTML=`<img src="${d[0].image_url}" alt="${(r.name||"").replace(/"/g,"&quot;")}" loading="lazy">`; if(lbl) lbl.textContent="Change image"; }
+    else if(lbl){ lbl.textContent="Add image"; }
   }catch(e){}
+}
+async function openImagePicker(r){
+  const box=document.getElementById("imgPicker"); if(!box) return;
+  if(!sb||!SESSION){ box.innerHTML='<div class="note err">Sign in (top-right) to add or change card images.</div>'; return; }
+  box.innerHTML='<div class="note">🔎 Searching eBay for images of this card…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke("card-image",{body:{action:"search",card:cardMin(r)}});
+    if(error) throw new Error(error.message||"search failed");
+    if(data&&data.error) throw new Error(data.error);
+    const imgs=(data&&data.images)||[];
+    if(!imgs.length){ box.innerHTML='<div class="note">No eBay images found for this card right now.</div>'; return; }
+    box.innerHTML='<div class="note" style="margin-top:0">Recommended matches from eBay — click one to set it as this card\'s image:</div><div class="imgpick-grid">'
+      +imgs.map((im,i)=>`<img class="imgpick" data-i="${i}" src="${(im.image_url||"").replace(/"/g,"&quot;")}" title="${(im.title||"").replace(/"/g,"&quot;")}" loading="lazy">`).join("")+'</div>';
+    box.querySelectorAll(".imgpick").forEach(im=>im.onclick=()=>setCardImage(r, imgs[+im.dataset.i].image_url));
+  }catch(e){ box.innerHTML='<div class="note err">'+(e.message||e)+'</div>'; }
+}
+async function setCardImage(r,url){
+  const box=document.getElementById("imgPicker"); if(box) box.innerHTML='<div class="note">Saving…</div>';
+  try{
+    const {data,error}=await sb.functions.invoke("card-image",{body:{action:"set",card:cardMin(r),image_url:url}});
+    if(error) throw new Error(error.message||"save failed");
+    if(data&&data.error) throw new Error(data.error);
+    const el=document.getElementById("cardImg"); if(el) el.innerHTML=`<img src="${(url||"").replace(/"/g,"&quot;")}" alt="" loading="lazy">`;
+    const lbl=document.getElementById("imgPickLabel"); if(lbl) lbl.textContent="Change image";
+    if(box) box.innerHTML='<div class="note okc">✓ Image saved.</div>';
+  }catch(e){ if(box) box.innerHTML='<div class="note err">'+(e.message||e)+'</div>'; }
 }
 const cardMin=r=>({game:r.game,set_name:r.set_name,card_number:r.card_number,parallel:r.parallel,name:r.name});
 async function doubleCheck(r){
