@@ -1149,7 +1149,14 @@ const LBLKEY="voltdash.lbcols";
 function loadLBL(){ let p={}; try{p=JSON.parse(localStorage.getItem(LBLKEY)||"{}");}catch(e){}
   const def=LBCOLS.map(c=>c[0]); let order=Array.isArray(p.order)?p.order.filter(k=>def.includes(k)):[];
   def.forEach(k=>{ if(!order.includes(k)) order.push(k); });
-  return {order, hidden:p.hidden||{}, widths:p.widths||{}}; }
+  return {order, hidden:p.hidden||{}, widths:p.widths||{}, sort:p.sort||null}; }
+// per-column sort accessors (group-level) for the Let's buy table
+const LBSORT={
+  card:g=>(g.rep.name||g.rep.title||"").toLowerCase(),
+  price:g=>num(g.minPrice), paid:g=>g.paidAvg, profit:g=>g.bestProfit,
+  raw:g=>g.raw, psa10:g=>num(g.rep.psa10),
+  b1:g=>g.c1, b6:g=>g.c6, b12:g=>g.c12, b24:g=>g.c24, total:g=>g.total,
+  set:g=>(g.rep.set_name||"").toLowerCase(), num:g=>parseInt(g.rep.card_number)||0 };
 function saveLBL(p){ try{localStorage.setItem(LBLKEY,JSON.stringify(p));}catch(e){} }
 let LBL=loadLBL();
 // adjustable 🔥 fire-deal rule
@@ -1177,7 +1184,9 @@ function renderLetsBuy(){
     let bp=Math.max.apply(null,g.items.map(it=>{const p=lbEstProfit(it);return p==null?-1e9:p;}));
     g.bestProfit=bp<=-1e9?null:bp;
   });
-  groups.sort((a,b)=> (b.hasDeal?1:0)-(a.hasDeal?1:0) || b.c1-a.c1 || b.c6-a.c6 || b.total-a.total);
+  if(LBL.sort && LBSORT[LBL.sort.key]){ const acc=LBSORT[LBL.sort.key], dir=LBL.sort.dir;
+    groups.sort((a,b)=>{ let av=acc(a),bv=acc(b); av=(av==null)?-Infinity:av; bv=(bv==null)?-Infinity:bv; if(av<bv)return -dir; if(av>bv)return dir; return 0; }); }
+  else groups.sort((a,b)=> (b.hasDeal?1:0)-(a.hasDeal?1:0) || b.c1-a.c1 || b.c6-a.c6 || b.total-a.total);
   LBGROUPS=groups;
   if(!groups.length){ body.innerHTML='<p class="note">No active raw listings right now. The background refresh runs every 30 min — check back soon, or add more favorites (☆ on any card).</p>'; return; }
   const cols=LBL.order.map(k=>LBCOLS.find(c=>c[0]===k)).filter(c=>c && !LBL.hidden[c[0]]);
@@ -1187,7 +1196,12 @@ function renderLetsBuy(){
     +`<div class="pcolwrap"><button class="pbtn" id="fireBtn">🔥 Rules</button><div class="pcmenu" id="fireMenu" style="display:none;min-width:236px"><div class="pchint">🔥 flags a Buy It Now priced at least X% below your avg paid or the market raw, listed within the last N hours.</div><label class="pcitem" style="justify-content:space-between">Discount % below <input id="fPct" type="number" min="1" max="99" value="${FIRECFG.pct}" style="width:60px"></label><label class="pcitem" style="justify-content:space-between">Listed within (hrs) <input id="fHrs" type="number" min="1" max="336" value="${FIRECFG.hours}" style="width:60px"></label><label class="pcitem"><input type="checkbox" id="fPaid" ${FIRECFG.vsPaid?"checked":""}> vs your avg paid</label><label class="pcitem"><input type="checkbox" id="fRaw" ${FIRECFG.vsRaw?"checked":""}> vs market raw</label><button class="pbtn" id="fireSave" style="margin-top:8px;width:100%">💾 Save &amp; refresh</button></div></div>`
     +`<div class="pcolwrap"><button class="pbtn" id="lbcolBtn">⚙ Columns ▾</button><div class="pcmenu" id="lbcolMenu" style="display:none"><div class="pchint">Show / hide · drag headers to reorder</div>${menu}<button class="pbtn" id="lbcolReset" style="margin-top:6px;width:100%">Reset layout</button></div></div>`
     +`</div></div>`;
-  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>`<th draggable="true" data-key="${c[0]}"${LBL.widths[c[0]]?` style="width:${LBL.widths[c[0]]}px"`:""}>${c[1]}</th>`).join("")+'</tr></thead><tbody>';
+  h+='<div class="tablewrap"><table class="ptbl"><thead><tr><th class="pcx"></th>'+cols.map(c=>{
+    const active=LBL.sort&&LBL.sort.key===c[0];
+    const car=active?(LBL.sort.dir>0?'▲':'▼'):(LBSORT[c[0]]?'⇅':'');
+    const st=(LBL.widths[c[0]]?`width:${LBL.widths[c[0]]}px;`:'')+(LBSORT[c[0]]?'cursor:pointer':'');
+    return `<th draggable="true" data-key="${c[0]}"${st?` style="${st}"`:''}>${c[1]}${car?` <span style="opacity:.45;font-size:10px">${car}</span>`:''}</th>`;
+  }).join("")+'</tr></thead><tbody>';
   groups.forEach((g,gi)=>{
     h+=`<tr class="lgrow" data-gi="${gi}" style="cursor:pointer"><td><span class="caret">▸</span></td>`+cols.map(c=>`<td>${c[2](g,gi)}</td>`).join("")+`</tr>`;
     g.items.forEach((it,ii)=>{
@@ -1198,13 +1212,18 @@ function renderLetsBuy(){
   body.innerHTML=h;
   const table=body.querySelector("table.ptbl");
   makeResizable(table,(k,w)=>{ LBL.widths[k]=w; saveLBL(LBL); });
-  let dragKey=null;
+  let dragKey=null, dragged=false;
   table.querySelectorAll("thead th[data-key]").forEach(th=>{
-    th.addEventListener("dragstart",e=>{ dragKey=th.dataset.key; e.dataTransfer.effectAllowed="move"; });
+    th.addEventListener("dragstart",e=>{ dragKey=th.dataset.key; dragged=true; e.dataTransfer.effectAllowed="move"; });
     th.addEventListener("dragover",e=>{ e.preventDefault(); th.style.boxShadow="inset 3px 0 0 #5566ff"; });
     th.addEventListener("dragleave",()=>{ th.style.boxShadow=""; });
     th.addEventListener("drop",e=>{ e.preventDefault(); th.style.boxShadow=""; const tgt=th.dataset.key; if(!dragKey||dragKey===tgt) return;
       const o=LBL.order.slice(); o.splice(o.indexOf(dragKey),1); o.splice(o.indexOf(tgt),0,dragKey); LBL.order=o; saveLBL(LBL); renderLetsBuy(); });
+    th.addEventListener("click",e=>{ if(dragged){ dragged=false; return; } if(e.target.closest(".colresize")) return;
+      const k=th.dataset.key; if(!LBSORT[k]) return;
+      if(LBL.sort && LBL.sort.key===k) LBL.sort={key:k,dir:LBL.sort.dir*-1};
+      else LBL.sort={key:k,dir:(k==='card'||k==='set'||k==='num')?1:-1};
+      saveLBL(LBL); renderLetsBuy(); });
   });
   const cbtn=body.querySelector("#lbcolBtn"), cmnu=body.querySelector("#lbcolMenu");
   if(cbtn) cbtn.onclick=()=>{ cmnu.style.display=cmnu.style.display==="none"?"block":"none"; };
@@ -1222,7 +1241,7 @@ function renderLetsBuy(){
   };
   body.querySelectorAll("#lbcolMenu input[data-col]").forEach(cb=>cb.onchange=()=>{ LBL.hidden[cb.dataset.col]=!cb.checked; saveLBL(LBL); renderLetsBuy(); body.querySelector("#lbcolMenu").style.display="block"; });
   const rst=body.querySelector("#lbcolReset");
-  if(rst) rst.onclick=()=>{ LBL={order:LBCOLS.map(c=>c[0]),hidden:{},widths:{}}; saveLBL(LBL); renderLetsBuy(); };
+  if(rst) rst.onclick=()=>{ LBL={order:LBCOLS.map(c=>c[0]),hidden:{},widths:{},sort:null}; saveLBL(LBL); renderLetsBuy(); };
   const tb=body.querySelector("tbody");
   tb.addEventListener("click",e=>{
     if(e.target.closest("a")) return;
