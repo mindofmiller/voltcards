@@ -426,11 +426,12 @@ async function signIn(email){
     alert(error?("Sign-in error: "+error.message):"Check your email for a sign-in link."); }catch(e){ alert("Sign-in error."); }
 }
 async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} SESSION=null; renderAuth(); }
+function refreshBuyIfActive(){ const bv=document.getElementById("buyView"); if(bv && bv.style.display!=="none") showBuySub(BUYSUB); }
 async function initAuth(){
   if(!sb){ renderAuth(); return; }
   try{ const {data}=await sb.auth.getSession(); SESSION=data.session; }catch(e){ SESSION=null; }
-  renderAuth(); if(SESSION) loadTracking();
-  sb.auth.onAuthStateChange((_e,s)=>{ SESSION=s; renderAuth(); if(s) loadTracking(); });
+  renderAuth(); if(SESSION){ loadTracking(); refreshBuyIfActive(); }   // session may resolve after the Buy view first rendered — reload it now
+  sb.auth.onAuthStateChange((_e,s)=>{ SESSION=s; renderAuth(); if(s){ loadTracking(); refreshBuyIfActive(); } });
 }
 
 function enrich(r){
