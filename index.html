@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Volt Cards — Grading ROI Dashboard</title>
+<title>Volt's Pokédex</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%230b1f4d'/%3E%3Cpath%20d='M14%202%20L5%2013%20h5%20l-1%209%209-12%20h-5%20z'%20fill='%23ffd23f'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -187,7 +187,7 @@ tr.out:hover td{background:#dff0e4}
 </head>
 <body>
 <div class="wrap">
-  <div style="display:flex;align-items:center;gap:16px;margin:2px 0 8px"><img src="volt-logo.png" alt="Volt Cards" style="height:104px;width:auto;display:block"><span style="font-size:20px;font-weight:700;color:#1a2233;letter-spacing:.01em">Grading ROI Dashboard</span></div>
+  <div style="display:flex;align-items:center;gap:16px;margin:2px 0 8px"><img src="volt-logo.png" alt="Volt's Pokédex" style="height:104px;width:auto;display:block"><span style="font-size:20px;font-weight:700;color:#1a2233;letter-spacing:.01em">Volt's Pokédex</span></div>
   <div id="authbar" class="authbar"></div>
   <div class="sub" id="sub">Loading…</div>
 
@@ -213,6 +213,11 @@ tr.out:hover td{background:#dff0e4}
   <div id="gmodal"><header><h2 id="gTitle">New listings</h2><button class="close" id="gClose">×</button></header><div class="pbody" id="gbody"></div></div>
 
   <div class="card" style="margin-bottom:14px">
+    <div id="filterHdr" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
+      <span style="font-weight:600;font-size:13px">🔎 Filters</span>
+      <span id="filterCaret" class="muted" style="font-size:12px">▾ Hide</span>
+    </div>
+    <div id="filterBody" style="margin-top:10px">
     <div class="controls">
       <div>
         <label class="fld">Snapshot week</label>
@@ -250,6 +255,7 @@ tr.out:hover td{background:#dff0e4}
       <label class="tg"><input type="checkbox" id="valueOnly"> ⏳ Value only</label>
       <label class="tg"><input type="checkbox" id="hideUn" checked> Hide unpriced</label>
       <button class="pbtn" id="clearBtn" style="margin-left:auto">✕ Clear all filters</button>
+    </div>
     </div>
   </div>
 
@@ -1340,6 +1346,10 @@ function openGallery(g){
 async function boot(){
   try{
     syncControls(); bind(); buildSeasonChips(); renderAuth(); initAuth();
+    (function(){ const hdr=document.getElementById("filterHdr"), bd=document.getElementById("filterBody"), car=document.getElementById("filterCaret");
+      if(!hdr) return; let open=localStorage.getItem("voltdash.filtersOpen")!=="0";
+      const apply=()=>{ bd.style.display=open?"":"none"; car.textContent=open?"▾ Hide":"▸ Show"; };
+      apply(); hdr.onclick=()=>{ open=!open; localStorage.setItem("voltdash.filtersOpen", open?"1":"0"); apply(); }; })();
     document.getElementById("sClose").onclick=closeSide;
     document.getElementById("ov").onclick=closeSide;
     document.getElementById("purchasedBtn").onclick=openPurchases;
