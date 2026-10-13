@@ -1803,12 +1803,15 @@ async function openPurchases(){
   if(!sb||!SESSION){ body.innerHTML='<p class="note">Sign in (top-right) to see the cards you\'ve purchased.</p>'; return; }
   body.innerHTML=`<p class="note" style="display:flex;align-items:center;gap:8px">${dfSpin(28)}Loading…</p>`;
   try{
-    const {data,error}=await sb.from("my_purchases").select("*");
-    if(error){ body.innerHTML='<p class="err">'+error.message+'</p>'; return; }
-    try{ const {data:sells}=await sb.from("card_transactions").select("txn_date,price,game,set_name,card_number,parallel").eq("type","sell"); PURCH_SELLS=sells||[]; }catch(e){ PURCH_SELLS=[]; }
-    try{ const {data:buys}=await sb.from("card_transactions").select("txn_date,price,canceled,matched,ignored,quantity,shipping_cost,tax,ebay_account,item_title").eq("type","buy"); ALLBUYS=(buys||[]).filter(b=>!b.canceled); }catch(e){ ALLBUYS=[]; }
+    // PostgREST caps each response at 1000 rows — page through so totals reflect ALL purchases, not just the first 1000
+    let data=[], _f=0;
+    for(;;){ const {data:chunk,error}=await sb.from("my_purchases").select("*").range(_f,_f+999);
+      if(error){ body.innerHTML='<p class="err">'+error.message+'</p>'; return; }
+      const c=chunk||[]; data=data.concat(c); if(c.length<1000) break; _f+=1000; if(_f>50000) break; }
+    try{ let sells=[], sf=0; for(;;){ const {data:sc}=await sb.from("card_transactions").select("txn_date,price,game,set_name,card_number,parallel").eq("type","sell").range(sf,sf+999); const c=sc||[]; sells=sells.concat(c); if(c.length<1000) break; sf+=1000; if(sf>50000) break; } PURCH_SELLS=sells; }catch(e){ PURCH_SELLS=[]; }
+    try{ let buys=[], bf=0; for(;;){ const {data:bc}=await sb.from("card_transactions").select("txn_date,price,canceled,matched,ignored,quantity,shipping_cost,tax,ebay_account,item_title").eq("type","buy").range(bf,bf+999); const c=bc||[]; buys=buys.concat(c); if(c.length<1000) break; bf+=1000; if(bf>50000) break; } ALLBUYS=buys.filter(b=>!b.canceled); }catch(e){ ALLBUYS=[]; }
     await loadBlocked();
-    renderPurchases((data||[]).filter(r=>!isBlockedSeller(r.seller)));   // hide blocked sellers
+    renderPurchases(data.filter(r=>!isBlockedSeller(r.seller)));   // hide blocked sellers
   }catch(e){ body.innerHTML='<p class="err">'+e.message+'</p>'; }
 }
 
@@ -2985,6 +2988,17 @@ function lbEstProfit(it, costOverride){
   if(p9==null||p10==null||price==null) return null;
   return (gr*p10+(1-gr)*p9)*0.88 - costFor(price) - price;
 }
+// Effective shipping: eBay omits shippingOptions for ~half of listings. Treating unknown as $0 let
+// international items (which are almost never free-ship) rank like free-shipping deals. So when shipping
+// is unknown we estimate by item country — international gets a penalty, domestic/unknown stays cheap.
+const SHIP_EST={intl:20, dom:0};   // $ estimate used only when eBay returns no shipping cost
+function effShip(it){
+  const known=(it.shipping_cost==null?null:+it.shipping_cost);
+  if(known!=null && isFinite(known)) return {cost:known, est:false};   // real eBay shipping (incl. free=$0)
+  const c=String(it.ship_country||"").toUpperCase();
+  if(c && c!=="US") return {cost:SHIP_EST.intl, est:true};             // international, unknown → estimate
+  return {cost:SHIP_EST.dom, est:false};                              // domestic / unknown country
+}
 async function openLetsBuy(){
   const body=document.getElementById("bbody");
   if(!sb||!SESSION){ body.innerHTML='<p class="note">Sign in (top-right) to see buy candidates for your ⭐ favorites.</p>'; return; }
@@ -3001,7 +3015,7 @@ async function openLetsBuy(){
     }
     await loadBlocked(); LB=LB.filter(it=>!isBlockedSeller(it.seller_username));   // hide blocked sellers
     // fold shipping into the price used everywhere (table, deal flag, est. profit, sidebar)
-    LB.forEach(it=>{ it.item_price=+it.price||0; it.ship_cost=(it.shipping_cost==null?null:+it.shipping_cost); it.price=it.item_price+(it.ship_cost||0); });
+    LB.forEach(it=>{ it.item_price=+it.price||0; const es=effShip(it); it.ship_cost=es.cost; it.ship_est=es.est; it.price=it.item_price+(es.cost||0); });
     // auto-dismiss listings from sellers with fewer than 8 reviews (treated as "not interested")
     const lowRev=LB.filter(it=>it.seller_feedback_score!=null && Number(it.seller_feedback_score)<8);
     if(lowRev.length){
@@ -3334,7 +3348,7 @@ function openProfitInfo(it){
     ${line('Expected sale value', money2(expVal), `${pct(gr)} × ${money2(p10)} + ${pct(1-gr)} × ${money2(p9)}`)}
     ${line('− eBay / PayPal fees', '−'+money2(fee), '12% of sale · net '+money2(net))}
     ${line('− Grading + handling', '−'+money2(grading), `$${gFee} PSA fee + $${HANDLING} ship`)}
-    ${line(usingRawCost?'− What you’d likely pay':'− What you pay', '−'+money2(price), usingRawCost?'assumed ≈ raw comp, not the current bid':(it.ship_cost?('landed, incl. '+money2(it.ship_cost)+' shipping'):'landed price'))}
+    ${line(usingRawCost?'− What you’d likely pay':'− What you pay', '−'+money2(price), usingRawCost?'assumed ≈ raw comp, not the current bid':(it.ship_cost?(it.ship_est?'landed, incl. ~'+money2(it.ship_cost)+' est. intl shipping':'landed, incl. '+money2(it.ship_cost)+' shipping'):'landed price'))}
     <div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0 2px;font-size:16px"><div style="font-weight:800">Est. profit</div><div style="font-weight:800" class="${profit>=0?'pos':'neg'}">${money2(profit)}${roi!=null?` · ${Math.round(roi*100)}% ROI`:''}</div></div>
     <div class="muted" style="font-size:11px;margin-top:8px">Assumes the card grades PSA 9 or 10 (weighted by its gem rate) and sells at current market comps. Gem rate from GemRate; PSA 9/10 prices from PriceCharting/PokeData.</div>`;
   let ov=document.getElementById("profitInfo");
@@ -3457,7 +3471,7 @@ async function openDealFeed(){
       _from+=1000; if(_from>30000) break;
     }
     await loadBlocked(); LB=LB.filter(it=>!isBlockedSeller(it.seller_username));   // hide blocked sellers
-    LB.forEach(it=>{ it.item_price=+it.price||0; it.ship_cost=(it.shipping_cost==null?null:+it.shipping_cost); it.price=it.item_price+(it.ship_cost||0); });
+    LB.forEach(it=>{ it.item_price=+it.price||0; const es=effShip(it); it.ship_cost=es.cost; it.ship_est=es.est; it.price=it.item_price+(es.cost||0); });
     const lowRev=LB.filter(it=>it.seller_feedback_score!=null && Number(it.seller_feedback_score)<8);
     if(lowRev.length){ try{ await sb.from("listing_dismissals").insert(lowRev.map(it=>({user_id:SESSION.user.id,item_id:it.item_id}))); }catch(e){} const ids=new Set(lowRev.map(it=>it.item_id)); LB=LB.filter(it=>!ids.has(it.item_id)); }
     renderDealFeed();
