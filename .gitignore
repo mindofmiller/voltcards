@@ -1,0 +1,6 @@
+.wrangler/
+*.bak
+*.bak-*
+*.stale-*
+*.mergedfixes
+.DS_Store
