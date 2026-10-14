@@ -4857,12 +4857,28 @@ boot();
       return res.map(r=>trkFromText(r.text)).filter(Boolean);
     }catch(e){ return []; }
   }
-  function fileToImg(file){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); }); }
-  async function downscale(file,max=1568,q=0.72){
-    try{ const img=await fileToImg(file); const sc=Math.min(1,max/Math.max(img.width,img.height));
-      const c=document.createElement("canvas"); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
-      c.getContext("2d").drawImage(img,0,0,c.width,c.height); return c.toDataURL("image/jpeg",q);
-    }catch(e){ return null; }
+  function fileToImg(file){ return new Promise((res,rej)=>{ const i=new Image(),url=URL.createObjectURL(file); i.onload=()=>{URL.revokeObjectURL(url);res(i);}; i.onerror=()=>{URL.revokeObjectURL(url);rej(new Error("Unreadable image"));}; i.src=url; }); }
+  function originalDataURL(file){ return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("Could not read "+file.name));r.readAsDataURL(file);}); }
+  async function preparePhoto(file){
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Use JPEG, PNG or WebP originals; export HEIC photos as JPEG first.");
+    const img=await fileToImg(file),width=img.naturalWidth||img.width,height=img.naturalHeight||img.height;
+    if(width>8000||height>8000) throw new Error(file.name+" exceeds Claude's 8,000-pixel limit. Export smaller sections without shrinking the text.");
+    // This is the untouched file, not a canvas re-encode.
+    const original=await originalDataURL(file);
+    if(original.length>9*1024*1024) throw new Error(file.name+" exceeds the original upload size limit. Use a smaller JPEG file while keeping its pixel dimensions.");
+    const canvas=document.createElement("canvas"),ctx=canvas.getContext("2d");
+    const scale=Math.min(1,1280/Math.max(width,height));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);const overview=canvas.toDataURL("image/jpeg",0.9);
+    // Native-pixel crops keep small text legible despite the model's whole-image resize.
+    const details=[];
+    if(Math.max(width,height)>1568){
+      for(let y=0;y<height;y+=1000) for(let x=0;x<width;x+=1000){
+        const left=Math.max(0,x-32),top=Math.max(0,y-32),w=Math.min(1064,width-left),h=Math.min(1064,height-top);canvas.width=w;canvas.height=h;
+        ctx.drawImage(img,left,top,w,h,0,0,w,h);
+        details.push({x:left,y:top,width:w,height:h,image:canvas.toDataURL("image/jpeg",0.95)});
+      }
+    }
+    return {original,overview,details,width,height};
   }
 
 
@@ -4885,7 +4901,7 @@ boot();
   function renderUpload(){
     bodyEl().innerHTML=`<label>Check in for <select id="bcWorker"><option value="steve">Steve · Riss</option><option value="connor">Conor · Chestnut</option></select></label>
       <p class="bcmuted">Upload photos of the cards and their packages together. Cards are counted and reconciled with purchases using tracking, sender names and addresses. Matching cards are checked in automatically; identified extras are added to inventory with unknown cost.</p>
-      <label class="bcdrop" id="bcDrop"><div style="font-size:30px">📸</div><strong>Upload & check in</strong><div class="bcmuted">Choose up to 20 photos, or drop them here</div><input id="bcFiles" type="file" accept="image/*" multiple style="display:none"></label>
+      <label class="bcdrop" id="bcDrop"><div style="font-size:30px">📸</div><strong>Upload & check in</strong><div class="bcmuted">Full-resolution originals + detailed close-ups · up to 20 photos</div><input id="bcFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple style="display:none"></label>
       <div id="bcStatus" role="status" aria-live="polite" style="margin-top:10px"></div>`;
     const worker=document.getElementById("bcWorker"); worker.value=BC.worker;
     worker.onchange=e=>{ BC.worker=e.target.value; };
@@ -4908,16 +4924,29 @@ boot();
     document.getElementById("bcWorker").disabled=true;
     document.getElementById("bcFiles").disabled=true; b.disabled=true;
     try{
-      const hashes=new Set(),images=[],barcodes=new Set();
+      const hashes=new Set(),images=[],photo_reads=[],barcodes=new Set();
       for(let i=0;i<files.length;i++){
         set(`Reading photo ${i+1}/${files.length}…`);
         const hash=await hashFile(files[i]); if(hashes.has(hash)) continue;
-        const image=await downscale(files[i]); if(!image) throw new Error("Could not read "+files[i].name+". Nothing was submitted.");
-        hashes.add(hash); images.push(image);
+        const photo=await preparePhoto(files[i]);
+        const reads=[];
+        // Each request includes the untouched original and at most 16 native-pixel crops.
+        // All reads are merged against the original layout before any inventory write.
+        const chunks=Math.max(1,Math.ceil(photo.details.length/16));
+        for(let part=0;part<chunks;part++){
+          set(`Reading original ${i+1}/${files.length} (${photo.width} × ${photo.height}) · detail pass ${part+1}/${chunks}…`);
+          const payload={action:"read-photo",worker:BC.worker,original:photo.original,width:photo.width,height:photo.height,details:photo.details.slice(part*16,(part+1)*16)};
+          if(JSON.stringify(payload).length>28*1024*1024) throw new Error("This photo exceeds the request limit. Export a smaller JPEG at the same resolution.");
+          const {data:read,error:readError}=await sb.functions.invoke("batch-checkin",{body:payload});
+          if(readError){let msg=readError.message;try{msg=(await readError.context.json()).error||msg;}catch(_){}throw new Error(msg);}
+          if(!read?.extracted||read.error) throw new Error(read?.error||"Could not read full-resolution photo.");
+          reads.push(read.extracted);
+        }
+        hashes.add(hash); images.push(photo.overview);photo_reads.push({hash,width:photo.width,height:photo.height,reads});
         (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
       }
       set("Identifying cards, matching packages, and reconciling incoming quantities…");
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"auto",worker:BC.worker,photo_hashes:[...hashes],images,barcodes:[...barcodes]}});
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"auto",worker:BC.worker,photo_hashes:[...hashes],images,photo_reads,barcodes:[...barcodes]}});
       if(error){let msg=error.message;try{const j=await error.context.json();msg=j.error||msg;}catch(_){}throw new Error(msg);}
       if(!data||data.error) throw new Error(data?.error||"No receipt returned. Retry the same photos safely.");
       BC.busy=false;
