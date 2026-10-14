@@ -339,7 +339,7 @@ body{overflow-x:hidden}
     <button class="navbtn" data-view="buy">🛒 Buy</button>
     <button class="navbtn" data-view="purchased">📦 Purchased</button>
     <button class="navbtn" id="scanBtn">📥 Receive</button>
-    <button class="navbtn" id="batchBtn">📸 Batch</button>
+    <button class="navbtn" id="batchBtn">📸 Upload photos</button>
     <button class="navbtn" data-view="grading">🎓 Send to Grading</button>
     <button class="navbtn" data-view="accounting">🧮 Accounting</button>
     <button class="navbtn" data-view="alerts">🔔 Alerts</button>
@@ -4872,6 +4872,7 @@ boot();
   function openBatch(){
     if(typeof sb==='undefined'||!sb||!SESSION){ alert("Sign in first so check-ins log to your account."); return; }
     BC={staged:[],unmatched:[],recon:[],messages:[],busy:false};
+    footEl().onclick=doCommit;
     document.getElementById("bcov").style.display="block";
     document.getElementById("bcModal").classList.add("on");
     renderUpload();
@@ -4889,14 +4890,15 @@ boot();
       </label>
       <div id="bcStatus" class="bcmuted" style="margin-top:10px"></div>`;
     const inp=document.getElementById("bcFiles"), drop=document.getElementById("bcDrop");
-    drop.onclick=()=>inp.click();
+    // The label opens its file input natively; no recursive click handler.
     drop.ondragover=e=>{e.preventDefault();}; drop.ondrop=e=>{e.preventDefault(); if(e.dataTransfer.files.length) doProcess(e.dataTransfer.files);};
     inp.onchange=()=>{ if(inp.files.length) doProcess(inp.files); };
     footEl().disabled=true; footEl().textContent="Upload photos to start";
   }
 
   async function doProcess(fileList){
-    const files=[...fileList]; if(!files.length) return;
+    const files=[...fileList].filter(f=>f.type.startsWith("image/")); if(!files.length||BC.busy) return;
+    BC.busy=true;
     const st=document.getElementById("bcStatus");
     const set=t=>{ if(st) st.textContent=t; };
     set("Reading "+files.length+" photo(s) — decoding barcodes…");
@@ -4913,8 +4915,8 @@ boot();
       if(data.error) throw new Error(data.error);
       BC.staged=data.staged||[]; BC.unmatched=data.unmatched||[]; BC.recon=data.recon||[];
       BC.messages=[{role:"assistant",content:data.assistantMessage||"Done."}];
-      renderReview();
-    }catch(e){ set("⚠ "+e.message); }
+      BC.busy=false; renderReview();
+    }catch(e){ BC.busy=false; set("⚠ "+e.message); }
   }
 
   function renderReview(){
