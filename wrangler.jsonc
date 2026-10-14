@@ -2,8 +2,14 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "voltcards",
   "compatibility_date": "2026-07-01",
-  "assets": { "directory": "." },
+  "assets": {
+    "directory": "."
+  },
   "routes": [
-    { "pattern": "voltcards.us", "custom_domain": true }
-  ]
+    {
+      "pattern": "voltcards.us",
+      "custom_domain": true
+    }
+  ],
+  "account_id": "bdb0e578b57dc5886b82f7161cbd02a1"
 }
