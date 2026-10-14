@@ -66,8 +66,9 @@ export function reconcile(buys: any[], extracted: any, barcodes: string[]) {
       const identity={...card,name:nameKnown?card.name:'Unidentified Pokémon card',number:numberKnown?card.number:null};
       const pool = nameKnown ? buys.filter(r=>eligible(r) && !used.has(r.id) && cardMatches(r,identity)) : [];
       // Without a read number, only package evidence can select a purchase safely.
-      const candidates = pool.filter(r=>numberKnown || rank(r)>=3)
+      let candidates = pool.filter(r=>numberKnown || rank(r)>=3)
         .sort((a,b)=>rank(b)-rank(a) || String(a.txn_date).localeCompare(String(b.txn_date)) || a.id-b.id);
+      if(!numberKnown && new Set(candidates.map(r=>collector(r.card_number)||norm(r.item_title))).size>1) candidates=[];
       // Only a label in THIS batch proves a received purchase belongs to these photos.
       const prior = candidates.filter(r=>r.received_at && exact.includes(r)).slice(0,count);
       prior.forEach(r=>used.add(r.id)); already_received += prior.length;

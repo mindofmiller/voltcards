@@ -31,3 +31,5 @@ assert.throws(()=>box.physicalInventory([{card_count:8},{card_count:7}],{invento
 p=run([row(1,{item_title:'Mega Darkrai ex 116/84',card_number:'116'})],[{name:'Mega Darkrai ex',number:'116/084',language:'English',count:1,confident:true}]);assert.equal(p.items[0].id,1);
 p=run([row(1,{item_title:'Rayquaza VMAX 138/195',card_number:'138'})],[{...card,name:'Rayquaza V',count:1}]);assert.equal(p.recon[0].matched,0);
 console.log('Eight physical cards remain eight records even when four numbers or one entire identity are unreadable');
+
+p=run([row(1,{tracking_number:'ABC'}),row(2,{item_title:'Lugia V 186/195',card_number:'186',tracking_number:'DEF'})],[{name:'Lugia V',number:null,name_confident:true,number_confident:false,count:1}],[],['ABC','DEF']);assert.equal(p.items[0].source,'inventory');assert.equal(p.items[0].number,null);assert.ok(p.items[0].needs_identification);
