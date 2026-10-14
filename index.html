@@ -4865,35 +4865,48 @@ boot();
     }catch(e){ return null; }
   }
 
-  let BC={staged:[],unmatched:[],recon:[],messages:[],busy:false};
+  let BC={staged:[],unmatched:[],recon:[],messages:[],manual:[],worker:"steve",busy:false};
   const bodyEl=()=>document.getElementById("bcBody");
   const footEl=()=>document.getElementById("bcConfirm");
 
   function openBatch(){
     if(typeof sb==='undefined'||!sb||!SESSION){ alert("Sign in first so check-ins log to your account."); return; }
-    BC={staged:[],unmatched:[],recon:[],messages:[],busy:false};
+    BC={staged:[],unmatched:[],recon:[],messages:[],manual:[],worker:"steve",busy:false};
     footEl().onclick=doCommit;
     document.getElementById("bcov").style.display="block";
     document.getElementById("bcModal").classList.add("on");
     renderUpload();
   }
+  const workerLabel=()=>BC.worker==="steve"?"Steve · Riss":"Conor · Chestnut";
+  function workerPicker(){ return '<label>Check in for <select id="bcWorker"><option value="steve" '+(BC.worker==="steve"?"selected":"")+'>Steve · Riss</option><option value="connor" '+(BC.worker==="connor"?"selected":"")+'>Conor · Chestnut</option></select></label>'; }
+  function manualForm(){ return '<div class="bcsec">No matching purchase?</div><p class="bcmuted">Check in anyway creates an inventory record with unknown cost and credits the selected worker. Add only cards physically here.</p><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="bcManualName" placeholder="Card name" aria-label="Card name" style="flex:1;min-width:140px"><input id="bcManualNumber" placeholder="Card #" aria-label="Card number" style="width:80px"><input id="bcManualQty" type="number" min="1" max="100" value="1" aria-label="Quantity" style="width:65px"><button class="pbtn" id="bcManualAdd">Check in anyway</button></div><div id="bcManualList">'+BC.manual.map((r,i)=>'<div class="bcrow">'+esc(r.title)+' ×'+r.count+' <button class="pbtn" data-remove-manual="'+i+'">Remove</button></div>').join('')+'</div>'; }
+  function wireExtras(){
+    document.getElementById("bcWorker").onchange=e=>{ BC.worker=e.target.value; BC.staged=[]; BC.recon=[]; BC.unmatched=[]; BC.messages=[]; renderUpload(); };
+    document.getElementById("bcManualAdd").onclick=()=>{
+      const title=document.getElementById("bcManualName").value.trim(),count=Number(document.getElementById("bcManualQty").value);
+      if(!title||!Number.isInteger(count)||count<1||count>100){ alert("Enter a card name and quantity from 1 to 100."); return; }
+      BC.manual.push({title,number:document.getElementById("bcManualNumber").value.trim(),count,key:crypto.randomUUID()});
+      if(document.getElementById("bcList")) renderReview(); else renderUpload();
+    };
+    bodyEl().querySelectorAll("[data-remove-manual]").forEach(b=>b.onclick=()=>{ BC.manual.splice(Number(b.dataset.removeManual),1); if(document.getElementById("bcList")) renderReview(); else renderUpload(); });
+  }
   function closeBatch(){ document.getElementById("bcov").style.display="none"; document.getElementById("bcModal").classList.remove("on"); }
 
   function renderUpload(){
     bodyEl().innerHTML=`
-      <div class="bcmuted" style="margin-bottom:8px">Drop photos of the arrived mail (envelopes, mailers, boxes) and any photos of the loose cards. I'll read the shipping labels, match them to your orders, and stage check-ins for Steve to confirm.</div>
+      ${workerPicker()}<div class="bcmuted" style="margin-bottom:8px">Drop photos of the arrived mail (envelopes, mailers, boxes) and any photos of the loose cards. I'll read the shipping labels, match them to your orders, and stage check-ins for you to confirm.</div>
       <label class="bcdrop" id="bcDrop">
         <div style="font-size:30px">📸</div>
         <div style="font-weight:700;margin-top:4px">Tap to add photos</div>
         <div class="bcmuted">or drop them here</div>
         <input id="bcFiles" type="file" accept="image/*" multiple style="display:none">
       </label>
-      <div id="bcStatus" class="bcmuted" style="margin-top:10px"></div>`;
+      <div id="bcStatus" class="bcmuted" style="margin-top:10px"></div>${manualForm()}`;
     const inp=document.getElementById("bcFiles"), drop=document.getElementById("bcDrop");
     // The label opens its file input natively; no recursive click handler.
     drop.ondragover=e=>{e.preventDefault();}; drop.ondrop=e=>{e.preventDefault(); if(e.dataTransfer.files.length) doProcess(e.dataTransfer.files);};
     inp.onchange=()=>{ if(inp.files.length) doProcess(inp.files); };
-    footEl().disabled=true; footEl().textContent="Upload photos to start";
+    wireExtras(); updateConfirm();
   }
 
   async function doProcess(fileList){
@@ -4910,7 +4923,7 @@ boot();
     }
     set(`Found ${barcodes.size} tracking barcode(s). Reading envelopes + cards with Claude…`);
     try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"process",barcodes:[...barcodes],images}});
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"process",worker:BC.worker,barcodes:[...barcodes],images}});
       if(error){ let msg=error.message; try{ const j=await error.context.json(); if(j&&j.error) msg=j.error; }catch(_){} throw new Error(msg||"request failed"); }
       if(data.error) throw new Error(data.error);
       BC.staged=data.staged||[]; BC.unmatched=data.unmatched||[]; BC.recon=data.recon||[];
@@ -4924,7 +4937,8 @@ boot();
     let recon=""; if(BC.recon&&BC.recon.length){ recon=`<div class="bcsec">Loose-card reconciliation</div><table class="bctable"><tr><th>Card</th><th>In photos</th><th>Already today</th><th>Adding</th></tr>`+BC.recon.map(r=>`<tr><td>${esc(r.card)}</td><td>${r.present}</td><td>${r.received_today+(r.staging_now||0)}</td><td>${r.will_add}</td></tr>`).join("")+`</table>`; }
     let unm=""; if(BC.unmatched&&BC.unmatched.length){ unm=`<div class="bcsec">No match — eBay never synced tracking (${BC.unmatched.length})</div><div class="bcmuted" style="word-break:break-all">${BC.unmatched.map(esc).join(", ")}</div><div class="bcmuted" style="margin-top:3px">Tell me what these are in the chat (e.g. "the Mega Gardevoir is one of these") and I'll match them by card.</div>`; }
     const chat=`<div class="bcchat"><div id="bcMsgs">${BC.messages.map(m=>`<div class="bcmsg ${m.role==='user'?'u':'a'}"><span class="b">${esc(m.content)}</span></div>`).join("")}</div><div class="bcchatin"><input id="bcInput" placeholder="Ask or correct — e.g. 'Clefairy is 7 not 6'"><button id="bcSend">Send</button></div></div>`;
-    bodyEl().innerHTML=`<div class="bcsec">Will check in for Steve (${BC.staged.length})</div><div id="bcList">${rows}</div>${recon}${unm}${chat}`;
+    bodyEl().innerHTML=`${workerPicker()}<div class="bcsec">Will check in for ${workerLabel()} (${BC.staged.length})</div><div id="bcList">${rows}</div>${recon}${unm}${manualForm()}${chat}`;
+    wireExtras();
     const send=()=>{ const v=(document.getElementById("bcInput").value||"").trim(); if(v) sendChat(v); };
     document.getElementById("bcSend").onclick=send;
     document.getElementById("bcInput").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
@@ -4932,14 +4946,14 @@ boot();
     bodyEl().querySelectorAll('#bcList input[type=checkbox]').forEach(c=>c.onchange=updateConfirm);
   }
   function checkedIds(){ return [...bodyEl().querySelectorAll('#bcList input[type=checkbox]:checked')].map(c=>Number(c.dataset.id)); }
-  function updateConfirm(){ const n=checkedIds().length; const b=footEl(); b.disabled=n===0||BC.busy; b.textContent=n?`✓ Confirm ${n} check-in${n>1?"s":""}`:"Select cards to check in"; }
+  function updateConfirm(){ const n=checkedIds().length+BC.manual.reduce((n,r)=>n+r.count,0); const b=footEl(); b.disabled=n===0||BC.busy; b.textContent=n?`✓ Confirm ${n} check-in${n>1?"s":""}`:"Select cards to check in"; }
 
   async function sendChat(text){
     BC.messages.push({role:"user",content:text});
     const msgs=document.getElementById("bcMsgs"); if(msgs) msgs.insertAdjacentHTML("beforeend",`<div class="bcmsg u"><span class="b">${esc(text)}</span></div><div class="bcmsg a" id="bcPending"><span class="b">…</span></div>`);
     document.getElementById("bcInput").value="";
     try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"chat",messages:BC.messages,context:{staged:BC.staged,unmatched:BC.unmatched,recon:BC.recon}}});
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"chat",worker:BC.worker,messages:BC.messages,context:{staged:BC.staged,unmatched:BC.unmatched,recon:BC.recon}}});
       if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
       BC.staged=data.staged||BC.staged; BC.messages.push({role:"assistant",content:data.assistantMessage||"Done."});
       renderReview();
@@ -4947,12 +4961,12 @@ boot();
   }
 
   async function doCommit(){
-    const ids=checkedIds(); if(!ids.length) return;
+    const ids=checkedIds(); if(BC.busy||(!ids.length&&!BC.manual.length)) return;
     BC.busy=true; const b=footEl(); b.disabled=true; b.textContent="Checking in…";
     try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"commit",ids}});
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"commit",worker:BC.worker,ids,manual:BC.manual}});
       if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
-      bodyEl().innerHTML=`<div style="text-align:center;padding:30px 10px"><div style="font-size:38px">✅</div><h3 style="margin:8px 0 2px">Checked in ${data.committed} card(s) for Steve</h3><p class="bcmuted">They're marked received. Refresh Purchased to see them.</p></div>`;
+      bodyEl().innerHTML=`<div style="text-align:center;padding:30px 10px"><div style="font-size:38px">✅</div><h3 style="margin:8px 0 2px">Checked in ${data.committed} card(s) for ${workerLabel()}</h3><p class="bcmuted">They're marked received. Refresh Purchased to see them.</p></div>`;
       b.textContent="Done"; b.disabled=false; b.onclick=()=>{ closeBatch(); try{ if(typeof openPurchases==="function") openPurchases(); }catch(e){} };
     }catch(e){ b.textContent="✓ Confirm"; b.disabled=false; BC.busy=false; alert("Check-in failed: "+e.message); }
   }
