@@ -7,3 +7,4 @@ wrangler.jsonc
 .gitignore
 .assetsignore
 supabase/**
+tests/**

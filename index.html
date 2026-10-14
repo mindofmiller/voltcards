@@ -4865,120 +4865,86 @@ boot();
     }catch(e){ return null; }
   }
 
-  let BC={staged:[],unmatched:[],recon:[],messages:[],manual:[],worker:"steve",busy:false};
+
+  let BC={worker:"steve",busy:false};
   const bodyEl=()=>document.getElementById("bcBody");
   const footEl=()=>document.getElementById("bcConfirm");
-
+  const workerLabel=()=>BC.worker==="steve"?"Steve · Riss":"Conor · Chestnut";
+  function closeBatch(){
+    if(BC.busy) return;
+    document.getElementById("bcov").style.display="none";
+    document.getElementById("bcModal").classList.remove("on");
+  }
   function openBatch(){
     if(typeof sb==='undefined'||!sb||!SESSION){ alert("Sign in first so check-ins log to your account."); return; }
-    BC={staged:[],unmatched:[],recon:[],messages:[],manual:[],worker:"steve",busy:false};
-    footEl().onclick=doCommit;
+    BC={worker:"steve",busy:false};
     document.getElementById("bcov").style.display="block";
     document.getElementById("bcModal").classList.add("on");
     renderUpload();
   }
-  const workerLabel=()=>BC.worker==="steve"?"Steve · Riss":"Conor · Chestnut";
-  function workerPicker(){ return '<label>Check in for <select id="bcWorker"><option value="steve" '+(BC.worker==="steve"?"selected":"")+'>Steve · Riss</option><option value="connor" '+(BC.worker==="connor"?"selected":"")+'>Conor · Chestnut</option></select></label>'; }
-  function manualForm(){ return '<div class="bcsec">No matching purchase?</div><p class="bcmuted">Check in anyway creates an inventory record with unknown cost and credits the selected worker. Add only cards physically here.</p><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="bcManualName" placeholder="Card name" aria-label="Card name" style="flex:1;min-width:140px"><input id="bcManualNumber" placeholder="Card #" aria-label="Card number" style="width:80px"><input id="bcManualQty" type="number" min="1" max="100" value="1" aria-label="Quantity" style="width:65px"><button class="pbtn" id="bcManualAdd">Check in anyway</button></div><div id="bcManualList">'+BC.manual.map((r,i)=>'<div class="bcrow">'+esc(r.title)+' ×'+r.count+' <button class="pbtn" data-remove-manual="'+i+'">Remove</button></div>').join('')+'</div>'; }
-  function wireExtras(){
-    document.getElementById("bcWorker").onchange=e=>{ BC.worker=e.target.value; BC.staged=[]; BC.recon=[]; BC.unmatched=[]; BC.messages=[]; renderUpload(); };
-    document.getElementById("bcManualAdd").onclick=()=>{
-      const title=document.getElementById("bcManualName").value.trim(),count=Number(document.getElementById("bcManualQty").value);
-      if(!title||!Number.isInteger(count)||count<1||count>100){ alert("Enter a card name and quantity from 1 to 100."); return; }
-      BC.manual.push({title,number:document.getElementById("bcManualNumber").value.trim(),count,key:crypto.randomUUID()});
-      if(document.getElementById("bcList")) renderReview(); else renderUpload();
-    };
-    bodyEl().querySelectorAll("[data-remove-manual]").forEach(b=>b.onclick=()=>{ BC.manual.splice(Number(b.dataset.removeManual),1); if(document.getElementById("bcList")) renderReview(); else renderUpload(); });
-  }
-  function closeBatch(){ document.getElementById("bcov").style.display="none"; document.getElementById("bcModal").classList.remove("on"); }
-
   function renderUpload(){
-    bodyEl().innerHTML=`
-      ${workerPicker()}<div class="bcmuted" style="margin-bottom:8px">Drop photos of the arrived mail (envelopes, mailers, boxes) and any photos of the loose cards. I'll read the shipping labels, match them to your orders, and stage check-ins for you to confirm.</div>
-      <label class="bcdrop" id="bcDrop">
-        <div style="font-size:30px">📸</div>
-        <div style="font-weight:700;margin-top:4px">Tap to add photos</div>
-        <div class="bcmuted">or drop them here</div>
-        <input id="bcFiles" type="file" accept="image/*" multiple style="display:none">
-      </label>
-      <div id="bcStatus" class="bcmuted" style="margin-top:10px"></div>${manualForm()}`;
-    const inp=document.getElementById("bcFiles"), drop=document.getElementById("bcDrop");
-    // The label opens its file input natively; no recursive click handler.
-    drop.ondragover=e=>{e.preventDefault();}; drop.ondrop=e=>{e.preventDefault(); if(e.dataTransfer.files.length) doProcess(e.dataTransfer.files);};
-    inp.onchange=()=>{ if(inp.files.length) doProcess(inp.files); };
-    wireExtras(); updateConfirm();
+    bodyEl().innerHTML=`<label>Check in for <select id="bcWorker"><option value="steve">Steve · Riss</option><option value="connor">Conor · Chestnut</option></select></label>
+      <p class="bcmuted">Upload photos of the cards and their packages together. Cards are counted and reconciled with purchases using tracking, sender names and addresses. Matching cards are checked in automatically; identified extras are added to inventory with unknown cost.</p>
+      <label class="bcdrop" id="bcDrop"><div style="font-size:30px">📸</div><strong>Upload & check in</strong><div class="bcmuted">Choose up to 20 photos, or drop them here</div><input id="bcFiles" type="file" accept="image/*" multiple style="display:none"></label>
+      <div id="bcStatus" role="status" aria-live="polite" style="margin-top:10px"></div>`;
+    const worker=document.getElementById("bcWorker"); worker.value=BC.worker;
+    worker.onchange=e=>{ BC.worker=e.target.value; };
+    const inp=document.getElementById("bcFiles"),drop=document.getElementById("bcDrop");
+    drop.ondragover=e=>e.preventDefault();
+    drop.ondrop=e=>{e.preventDefault();doProcess(e.dataTransfer.files);};
+    inp.onchange=()=>doProcess(inp.files);
+    const b=footEl(); b.disabled=false; b.textContent="Close"; b.onclick=closeBatch;
   }
-
+  async function hashFile(file){
+    return [...new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))].map(n=>n.toString(16).padStart(2,"0")).join("");
+  }
   async function doProcess(fileList){
-    const files=[...fileList].filter(f=>f.type.startsWith("image/")); if(!files.length||BC.busy) return;
+    const files=[...fileList].filter(f=>f.type.startsWith("image/"));
+    if(!files.length||BC.busy) return;
+    if(files.length>20){document.getElementById("bcStatus").textContent="Choose at most 20 photos.";return;}
     BC.busy=true;
-    const st=document.getElementById("bcStatus");
-    const set=t=>{ if(st) st.textContent=t; };
-    set("Reading "+files.length+" photo(s) — decoding barcodes…");
-    const barcodes=new Set(); const images=[];
-    for(let i=0;i<files.length;i++){
-      set(`Decoding barcodes ${i+1}/${files.length}…`);
-      (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
-      const d=await downscale(files[i]); if(d) images.push(d);
+    const status=document.getElementById("bcStatus"),b=footEl();
+    const set=t=>status.textContent=t;
+    document.getElementById("bcWorker").disabled=true;
+    document.getElementById("bcFiles").disabled=true; b.disabled=true;
+    try{
+      const hashes=new Set(),images=[],barcodes=new Set();
+      for(let i=0;i<files.length;i++){
+        set(`Reading photo ${i+1}/${files.length}…`);
+        const hash=await hashFile(files[i]); if(hashes.has(hash)) continue;
+        const image=await downscale(files[i]); if(!image) throw new Error("Could not read "+files[i].name+". Nothing was submitted.");
+        hashes.add(hash); images.push(image);
+        (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
+      }
+      set("Identifying cards, matching packages, and reconciling incoming quantities…");
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"auto",worker:BC.worker,photo_hashes:[...hashes],images,barcodes:[...barcodes]}});
+      if(error){let msg=error.message;try{const j=await error.context.json();msg=j.error||msg;}catch(_){}throw new Error(msg);}
+      if(!data||data.error) throw new Error(data?.error||"No receipt returned. Retry the same photos safely.");
+      BC.busy=false;
+      const rows=(data.recon||[]).map(r=>`<tr><td>${esc(r.card)} ${esc(r.number)}</td><td>${r.present}</td><td>${r.matched}</td><td>${r.inventory_added}</td><td>${r.already_received}</td></tr>`).join("");
+      bodyEl().innerHTML=`<h3>${data.replayed?"Previously checked in":"Checked in"}: ${Number(data.committed)||0} card(s)</h3>
+        <p>For ${workerLabel()} · ${Number(data.matched)||0} matched purchases · ${Number(data.inventory_added)||0} added to inventory</p>
+        ${data.replayed?'<p class="bcmuted">These photos were already processed. No duplicate check-ins were made.</p>':""}
+        ${rows?'<table class="bctable"><tr><th>Card</th><th>In photos</th><th>Matched</th><th>Added</th><th>Already received</th></tr>'+rows+'</table>':""}
+        ${(data.issues||[]).length?'<h4>Needs attention</h4><ul>'+data.issues.map(s=>'<li>'+esc(s)+'</li>').join("")+'</ul><p class="bcmuted">Unresolved cards were left unchanged. Upload clearer photos of only those cards and their packages.</p>':""}
+        <button class="pbtn" id="bcAnother">Check in another batch</button>`;
+      document.getElementById("bcAnother").onclick=renderUpload;
+      b.disabled=false;b.textContent="Done";b.onclick=closeBatch;
+    }catch(e){
+      BC.busy=false;set("⚠ "+e.message+" You can retry the same photos safely.");
+      document.getElementById("bcWorker").disabled=false;
+      const input=document.getElementById("bcFiles");input.disabled=false;input.value="";
+      b.disabled=false;b.textContent="Close";
     }
-    set(`Found ${barcodes.size} tracking barcode(s). Reading envelopes + cards with Claude…`);
-    try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"process",worker:BC.worker,barcodes:[...barcodes],images}});
-      if(error){ let msg=error.message; try{ const j=await error.context.json(); if(j&&j.error) msg=j.error; }catch(_){} throw new Error(msg||"request failed"); }
-      if(data.error) throw new Error(data.error);
-      BC.staged=data.staged||[]; BC.unmatched=data.unmatched||[]; BC.recon=data.recon||[];
-      BC.messages=[{role:"assistant",content:data.assistantMessage||"Done."}];
-      BC.busy=false; renderReview();
-    }catch(e){ BC.busy=false; set("⚠ "+e.message); }
   }
-
-  function renderReview(){
-    const rows=BC.staged.map(s=>`<label class="bcrow"><input type="checkbox" data-id="${s.id}" checked><div style="flex:1">${esc(s.card_number?("#"+s.card_number+" "):"")}${esc(s.title||("row "+s.id))}</div><span class="bcsrc">${esc(s.source||"")}</span></label>`).join("")||`<div class="bcmuted">Nothing matched yet.</div>`;
-    let recon=""; if(BC.recon&&BC.recon.length){ recon=`<div class="bcsec">Loose-card reconciliation</div><table class="bctable"><tr><th>Card</th><th>In photos</th><th>Already today</th><th>Adding</th></tr>`+BC.recon.map(r=>`<tr><td>${esc(r.card)}</td><td>${r.present}</td><td>${r.received_today+(r.staging_now||0)}</td><td>${r.will_add}</td></tr>`).join("")+`</table>`; }
-    let unm=""; if(BC.unmatched&&BC.unmatched.length){ unm=`<div class="bcsec">No match — eBay never synced tracking (${BC.unmatched.length})</div><div class="bcmuted" style="word-break:break-all">${BC.unmatched.map(esc).join(", ")}</div><div class="bcmuted" style="margin-top:3px">Tell me what these are in the chat (e.g. "the Mega Gardevoir is one of these") and I'll match them by card.</div>`; }
-    const chat=`<div class="bcchat"><div id="bcMsgs">${BC.messages.map(m=>`<div class="bcmsg ${m.role==='user'?'u':'a'}"><span class="b">${esc(m.content)}</span></div>`).join("")}</div><div class="bcchatin"><input id="bcInput" placeholder="Ask or correct — e.g. 'Clefairy is 7 not 6'"><button id="bcSend">Send</button></div></div>`;
-    bodyEl().innerHTML=`${workerPicker()}<div class="bcsec">Will check in for ${workerLabel()} (${BC.staged.length})</div><div id="bcList">${rows}</div>${recon}${unm}${manualForm()}${chat}`;
-    wireExtras();
-    const send=()=>{ const v=(document.getElementById("bcInput").value||"").trim(); if(v) sendChat(v); };
-    document.getElementById("bcSend").onclick=send;
-    document.getElementById("bcInput").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
-    updateConfirm();
-    bodyEl().querySelectorAll('#bcList input[type=checkbox]').forEach(c=>c.onchange=updateConfirm);
-  }
-  function checkedIds(){ return [...bodyEl().querySelectorAll('#bcList input[type=checkbox]:checked')].map(c=>Number(c.dataset.id)); }
-  function updateConfirm(){ const n=checkedIds().length+BC.manual.reduce((n,r)=>n+r.count,0); const b=footEl(); b.disabled=n===0||BC.busy; b.textContent=n?`✓ Confirm ${n} check-in${n>1?"s":""}`:"Select cards to check in"; }
-
-  async function sendChat(text){
-    BC.messages.push({role:"user",content:text});
-    const msgs=document.getElementById("bcMsgs"); if(msgs) msgs.insertAdjacentHTML("beforeend",`<div class="bcmsg u"><span class="b">${esc(text)}</span></div><div class="bcmsg a" id="bcPending"><span class="b">…</span></div>`);
-    document.getElementById("bcInput").value="";
-    try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"chat",worker:BC.worker,messages:BC.messages,context:{staged:BC.staged,unmatched:BC.unmatched,recon:BC.recon}}});
-      if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
-      BC.staged=data.staged||BC.staged; BC.messages.push({role:"assistant",content:data.assistantMessage||"Done."});
-      renderReview();
-    }catch(e){ const p=document.getElementById("bcPending"); if(p) p.querySelector(".b").textContent="⚠ "+e.message; }
-  }
-
-  async function doCommit(){
-    const ids=checkedIds(); if(BC.busy||(!ids.length&&!BC.manual.length)) return;
-    BC.busy=true; const b=footEl(); b.disabled=true; b.textContent="Checking in…";
-    try{
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"commit",worker:BC.worker,ids,manual:BC.manual}});
-      if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
-      bodyEl().innerHTML=`<div style="text-align:center;padding:30px 10px"><div style="font-size:38px">✅</div><h3 style="margin:8px 0 2px">Checked in ${data.committed} card(s) for ${workerLabel()}</h3><p class="bcmuted">They're marked received. Refresh Purchased to see them.</p></div>`;
-      b.textContent="Done"; b.disabled=false; b.onclick=()=>{ closeBatch(); try{ if(typeof openPurchases==="function") openPurchases(); }catch(e){} };
-    }catch(e){ b.textContent="✓ Confirm"; b.disabled=false; BC.busy=false; alert("Check-in failed: "+e.message); }
-  }
-
   function wire(){
-    const b=document.getElementById("batchBtn"); if(b) b.onclick=openBatch;
-    const c=document.getElementById("bcClose"); if(c) c.onclick=closeBatch;
-    const o=document.getElementById("bcov"); if(o) o.onclick=closeBatch;
-    const f=document.getElementById("bcConfirm"); if(f) f.onclick=doCommit;
+    const b=document.getElementById("batchBtn");if(b)b.onclick=openBatch;
+    document.getElementById("bcClose").onclick=closeBatch;
+    document.getElementById("bcov").onclick=closeBatch;
   }
-  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",wire); else wire();
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",wire);else wire();
   window.openBatch=openBatch;
+
 })();
 </script>
 
