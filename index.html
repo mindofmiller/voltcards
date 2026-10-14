@@ -4913,6 +4913,7 @@ boot();
     bodyEl().innerHTML=`<label>Check in for <select id="bcWorker"><option value="steve">Steve · Riss</option><option value="connor">Conor · Chestnut</option></select></label>
       <p class="bcmuted">Upload photos of the cards and their packages together. Cards are counted and reconciled with purchases using tracking, sender names and addresses. Matching cards are checked in automatically; identified extras are added to inventory with unknown cost.</p>
       <label class="bcdrop" id="bcDrop"><div style="font-size:30px">📸</div><strong>Upload & check in</strong><div class="bcmuted">Full-resolution originals + detailed close-ups · up to 20 photos</div><input id="bcFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple style="display:none"></label>
+      <label><input id="bcDryRun" type="checkbox"> Backtest only — no inventory or worker credit changes</label>
       <div id="bcStatus" role="status" aria-live="polite" style="margin-top:10px"></div>`;
     const worker=document.getElementById("bcWorker"); worker.value=BC.worker;
     worker.onchange=e=>{ BC.worker=e.target.value; };
@@ -4929,6 +4930,7 @@ boot();
     const files=[...fileList].filter(f=>f.type.startsWith("image/"));
     if(!files.length||BC.busy) return;
     if(files.length>20){document.getElementById("bcStatus").textContent="Choose at most 20 photos.";return;}
+    const dryRun=document.getElementById("bcDryRun")?.checked===true;
     BC.busy=true;
     const status=document.getElementById("bcStatus"),b=footEl();
     const set=t=>status.textContent=t;
@@ -4963,12 +4965,13 @@ boot();
         (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
       }
       set("Identifying cards, matching packages, and reconciling incoming quantities…");
-      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"auto",worker:BC.worker,photo_hashes:[...hashes],images,photo_reads,barcodes:[...barcodes]}});
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"auto",dry_run:dryRun,worker:BC.worker,photo_hashes:[...hashes],images,photo_reads,barcodes:[...barcodes]}});
       if(error){let msg=error.message;try{const j=await error.context.json();msg=j.error||msg;}catch(_){}throw new Error(msg);}
       if(!data||data.error) throw new Error(data?.error||"No receipt returned. Retry the same photos safely.");
       BC.busy=false;
       const rows=(data.recon||[]).map(r=>`<tr><td>${esc(r.card)} ${esc(r.number)}</td><td>${r.present}</td><td>${r.matched}</td><td>${r.inventory_added}</td><td>${r.already_received}</td></tr>`).join("");
-      bodyEl().innerHTML=`<h3>${data.replayed?"Previously checked in":"Checked in"}: ${Number(data.committed)||0} card(s)</h3>
+      bodyEl().innerHTML=`<h3>${data.dry_run?"Backtest complete":data.replayed?"Previously checked in":"Checked in"}: ${Number(data.dry_run?data.physical_count:data.committed)||0} card(s)</h3>
+        ${data.dry_run?"<p>No changes saved. Recognition is fresh; purchase matches reflect current inventory.</p>":""}
         <p>For ${workerLabel()} · ${Number(data.matched)||0} matched purchases · ${Number(data.inventory_added)||0} added to inventory</p>
         ${data.replayed?'<p class="bcmuted">These photos were already processed. No duplicate check-ins were made.</p>':""}
         ${rows?'<table class="bctable"><tr><th>Card</th><th>In photos</th><th>Matched</th><th>Added</th><th>Already received</th></tr>'+rows+'</table>':""}

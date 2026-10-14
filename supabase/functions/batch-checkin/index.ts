@@ -132,10 +132,10 @@ Deno.serve(async (req) => {
       const key = [...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('');
       const {data:prior,error:priorError} = await svc.from('photo_checkin_receipts').select('receipt').eq('batch_key',key).eq('user_id',USER_ID).maybeSingle();
       if(priorError) throw priorError;
-      if(prior) return json({...prior.receipt,replayed:true});
+      if(prior && body.dry_run!==true) return json({...prior.receipt,replayed:true});
       const {data:overlap,error:overlapError}=await svc.from('photo_checkin_receipts').select('batch_key').eq('user_id',USER_ID).overlaps('photo_hashes',hashes).limit(1);
       if(overlapError) throw overlapError;
-      if(overlap?.length) return json({error:'Some photos were already checked in. Upload only the new photos together.'},409);
+      if(overlap?.length && body.dry_run!==true) return json({error:'Some photos were already checked in. Upload only the new photos together.'},409);
       const photoReads=body.photo_reads;
       if(photoReads && (!Array.isArray(photoReads)||photoReads.length!==hashes.length||new Set(photoReads.map((r: any)=>r.hash)).size!==hashes.length||photoReads.some((r: any)=>!hashes.includes(r.hash)||!Array.isArray(r.reads)||r.reads.length>4)))
         return json({error:'Photo detail reads do not match this batch.'},400);
@@ -148,6 +148,7 @@ Count each physical loose card exactly once across all images. Deduplicate overl
       if(!extracted || !Array.isArray(extracted.inventory) || !Array.isArray(extracted.packages)) throw new Error('Could not read the batch reliably. Nothing was saved; retry with clearer photos.');
       physicalInventory(photoReads,extracted);
       const plan=reconcile(await loadBuys(worker),extracted,Array.isArray(body.barcodes)?body.barcodes:[]);
+      if(body.dry_run===true) return json({ok:true,dry_run:true,...plan,committed:0,matched:plan.items.filter((i: any)=>i.id).length,inventory_added:plan.items.filter((i: any)=>!i.id).length,worker});
       if(!plan.items.length) return json({ok:true,...plan,committed:0,matched:0,inventory_added:0,worker});
       const {data,error}=await svc.rpc('save_photo_checkin',{p_user:USER_ID,p_worker:worker,p_key:key,p_hashes:hashes,p_plan:plan});
       if(error) throw error;
