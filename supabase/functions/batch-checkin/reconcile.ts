@@ -1,19 +1,37 @@
 // Pure reconciliation: every loose physical copy gets exactly one outcome.
 const norm = (v: unknown) => String(v || '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g,'');
+const collector = (v: unknown) => norm(v).replace(/^([a-z]*)0+(?=\d)/,'$1');
 const tracking = (v: unknown) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g,'');
 export function cardMatches(row: any, card: any) {
   const title = String(row.item_title || '').toLowerCase();
   if (!String(card.name || '').toLowerCase().split(/\s+/).filter(Boolean).every(w => norm(title).includes(norm(w)))) return false;
+  for(const suffix of ['v','vmax','vstar','ex']) if(new RegExp('\\b'+suffix+'\\b','i').test(card.name||'')&&!new RegExp('\\b'+suffix+'\\b','i').test(title)) return false;
   const num = norm(String(card.number || '').split('/')[0]);
-  if (num && norm(String(row.card_number || '').split('/')[0]) !== num &&
-    !new RegExp('(^|[^a-z0-9])'+num+'([^a-z0-9]|$)','i').test(title)) return false;
+  if (num && collector(String(row.card_number || '').split('/')[0]) !== collector(num) &&
+    !(title.match(/[a-z]*\d+/gi)||[]).some(n=>collector(n)===collector(num))) return false;
   const denominator = String(card.number || '').split('/')[1];
   const printed = String(row.card_number || '').includes('/') ? String(row.card_number) : (title.match(/[a-z]*\d+\/[a-z]*\d+/i)||[])[0];
-  if(denominator && printed && printed.includes('/') && norm(printed.split('/')[1]) !== norm(denominator)) return false;
+  if(denominator && printed && printed.includes('/') && collector(printed.split('/')[1]) !== collector(denominator)) return false;
   const japanese = /japanese|japan|\bjpn\b|\bjp\b|[\u3040-\u30ff]/i.test(title);
   if (card.language === 'Japanese' && !japanese) return false;
   if (card.language === 'English' && japanese) return false;
   return true;
+}
+export function physicalInventory(photoReads: any[], extracted: any) {
+  const cardPhotos=(photoReads||[]).filter((p: any)=>p.card_count>0);
+  if(cardPhotos.some((p: any)=>!Number.isInteger(p.card_count)||p.card_count>64)) throw new Error('Invalid physical card count.');
+  if(cardPhotos.length===1){
+    const p=cardPhotos[0];
+    extracted.inventory=Array.from({length:p.card_count},(_,i)=>{
+      const row=p.reads.flatMap((r: any)=>r.inventory||[]).find((r: any)=>r.card_index===i+1)||{};
+      return {...row,count:1};
+    });
+    // Detailed per-card reads are authoritative over guesses in the overview merge.
+    extracted.uncertain=(extracted.uncertain||[]).filter((s: string)=>!/card|mew|rayquaza|darkrai|ditto|magneton/i.test(s));
+  } else if(cardPhotos.length && extracted.inventory.reduce((n: number,r: any)=>n+(Number(r.count)||0),0)<Math.max(...cardPhotos.map((p: any)=>p.card_count))) {
+    throw new Error('The identified count is below the visible card count. Nothing was saved; retry with each card photo separately.');
+  }
+  return extracted;
 }
 export function senderScore(row: any, pkg: any) {
   const seller = norm(row.seller), name = norm(pkg.sender_name);
@@ -40,10 +58,15 @@ export function reconcile(buys: any[], extracted: any, barcodes: string[]) {
   if (inventory.length) {
     for (const card of inventory) {
       const count = Number(card.count);
-      if (!card.name || !card.number || card.confident !== true || !Number.isInteger(count) || count<1 || count>100) {
+      if (!Number.isInteger(count) || count<1 || count>100) {
         issues.push('Needs a clearer photo: '+String(card.name || 'unidentified card')); continue;
       }
-      const candidates = buys.filter(r=>eligible(r) && !used.has(r.id) && cardMatches(r,card))
+      const nameKnown=Boolean(card.name) && (card.name_confident === true || card.confident === true);
+      const numberKnown=Boolean(card.number) && (card.number_confident === true || card.confident === true);
+      const identity={...card,name:nameKnown?card.name:'Unidentified Pokémon card',number:numberKnown?card.number:null};
+      const pool = nameKnown ? buys.filter(r=>eligible(r) && !used.has(r.id) && cardMatches(r,identity)) : [];
+      // Without a read number, only package evidence can select a purchase safely.
+      const candidates = pool.filter(r=>numberKnown || rank(r)>=3)
         .sort((a,b)=>rank(b)-rank(a) || String(a.txn_date).localeCompare(String(b.txn_date)) || a.id-b.id);
       // Only a label in THIS batch proves a received purchase belongs to these photos.
       const prior = candidates.filter(r=>r.received_at && exact.includes(r)).slice(0,count);
@@ -52,10 +75,11 @@ export function reconcile(buys: any[], extracted: any, barcodes: string[]) {
       pending.forEach(r=>{ used.add(r.id); items.push({id:r.id,title:r.item_title,number:card.number,source:source(r)}); });
       const missing = count-prior.length-pending.length;
       // Multi-copy orders need allocation support; never manufacture an extra purchase for them.
-      const multi = buys.some(r=>!r.received_at && Number(r.quantity||1)>1 && cardMatches(r,card));
+      const multi = nameKnown && numberKnown && buys.some(r=>!r.received_at && Number(r.quantity||1)>1 && cardMatches(r,identity));
       if (missing && multi) issues.push(`${card.name}: ${missing} copy/copies need allocation to a multi-card purchase.`);
-      else for(let i=0;i<missing;i++) items.push({title:`${card.name} ${card.number}${card.language==='Japanese'?' Japanese':''}${card.set?' '+card.set:''}`,number:card.number,source:'inventory'});
-      recon.push({card:card.name,number:card.number,present:count,matched:pending.length,already_received:prior.length,inventory_added:multi?0:missing,unresolved:multi?missing:0});
+      else for(let i=0;i<missing;i++) items.push({title:`${identity.name}${identity.number?' '+identity.number:''}${card.language==='Japanese'?' Japanese':''}${card.set && nameKnown?' '+card.set:''}${!nameKnown||!numberKnown?' — identification pending':''}`,number:identity.number,source:'inventory',needs_identification:!nameKnown||!numberKnown});
+      if(!nameKnown||!numberKnown) issues.push(`${identity.name}: checked in ${missing} physical copy/copies with ${!nameKnown?'identity':'collector number'} pending; no number was guessed.`);
+      recon.push({card:identity.name,number:identity.number,present:count,matched:pending.length,already_received:prior.length,inventory_added:multi?0:missing,unresolved:multi?missing:0,identification_pending:!nameKnown||!numberKnown});
     }
     // Labels cannot add extra cards beyond the photographed inventory.
     const excess=exact.filter(r=>!r.received_at && !used.has(r.id));

@@ -4878,7 +4878,18 @@ boot();
         details.push({x:left,y:top,width:w,height:h,image:canvas.toDataURL("image/jpeg",0.95)});
       }
     }
-    return {original,overview,details,width,height};
+    return {original,overview,details,width,height,imageElement:img};
+  }
+  function wholeCardCrops(photo,boxes){
+    return boxes.map((box,index)=>{
+      const x=Math.max(0,Math.floor(box.x*photo.width/1000)),y=Math.max(0,Math.floor(box.y*photo.height/1000));
+      const w=Math.min(photo.width-x,Math.ceil(box.width*photo.width/1000)),h=Math.min(photo.height-y,Math.ceil(box.height*photo.height/1000));
+      const rotation=[0,90,180,270].includes(box.rotation)?box.rotation:0;
+      const c=document.createElement('canvas');c.width=rotation%180?h:w;c.height=rotation%180?w:h;
+      const ctx=c.getContext('2d');ctx.translate(c.width/2,c.height/2);ctx.rotate(rotation*Math.PI/180);
+      ctx.drawImage(photo.imageElement,x,y,w,h,-w/2,-h/2,w,h);
+      return {x,y,width:w,height:h,rotation,card_index:index+1,image:c.toDataURL('image/jpeg',0.95)};
+    });
   }
 
 
@@ -4929,20 +4940,26 @@ boot();
         set(`Reading photo ${i+1}/${files.length}…`);
         const hash=await hashFile(files[i]); if(hashes.has(hash)) continue;
         const photo=await preparePhoto(files[i]);
+        set(`Locating physical cards in photo ${i+1}/${files.length}…`);
+        const {data:layout,error:layoutError}=await sb.functions.invoke('batch-checkin',{body:{action:'locate-photo',worker:BC.worker,image:photo.overview}});
+        if(layoutError||layout?.error) throw new Error(layout?.error||layoutError.message);
+        const cardPhoto=layout.cards.length>0;
+        if(cardPhoto) photo.details=wholeCardCrops(photo,layout.cards);
         const reads=[];
         // Each request includes the untouched original and at most 16 native-pixel crops.
         // All reads are merged against the original layout before any inventory write.
         const chunks=Math.max(1,Math.ceil(photo.details.length/16));
         for(let part=0;part<chunks;part++){
           set(`Reading original ${i+1}/${files.length} (${photo.width} × ${photo.height}) · detail pass ${part+1}/${chunks}…`);
-          const payload={action:"read-photo",worker:BC.worker,original:photo.original,width:photo.width,height:photo.height,details:photo.details.slice(part*16,(part+1)*16)};
+          const details=photo.details.slice(part*16,(part+1)*16);
+          const payload={action:"read-photo",worker:BC.worker,original:photo.original,width:photo.width,height:photo.height,details,card_indices:cardPhoto?details.map(d=>d.card_index):null};
           if(JSON.stringify(payload).length>28*1024*1024) throw new Error("This photo exceeds the request limit. Export a smaller JPEG at the same resolution.");
           const {data:read,error:readError}=await sb.functions.invoke("batch-checkin",{body:payload});
           if(readError){let msg=readError.message;try{msg=(await readError.context.json()).error||msg;}catch(_){}throw new Error(msg);}
           if(!read?.extracted||read.error) throw new Error(read?.error||"Could not read full-resolution photo.");
           reads.push(read.extracted);
         }
-        hashes.add(hash); images.push(photo.overview);photo_reads.push({hash,width:photo.width,height:photo.height,reads});
+        hashes.add(hash); images.push(photo.overview);photo_reads.push({hash,width:photo.width,height:photo.height,card_count:layout.cards.length,reads});
         (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
       }
       set("Identifying cards, matching packages, and reconciling incoming quantities…");
@@ -4955,7 +4972,7 @@ boot();
         <p>For ${workerLabel()} · ${Number(data.matched)||0} matched purchases · ${Number(data.inventory_added)||0} added to inventory</p>
         ${data.replayed?'<p class="bcmuted">These photos were already processed. No duplicate check-ins were made.</p>':""}
         ${rows?'<table class="bctable"><tr><th>Card</th><th>In photos</th><th>Matched</th><th>Added</th><th>Already received</th></tr>'+rows+'</table>':""}
-        ${(data.issues||[]).length?'<h4>Needs attention</h4><ul>'+data.issues.map(s=>'<li>'+esc(s)+'</li>').join("")+'</ul><p class="bcmuted">Unresolved cards were left unchanged. Upload clearer photos of only those cards and their packages.</p>':""}
+        ${(data.issues||[]).length?'<h4>Needs attention</h4><ul>'+data.issues.map(s=>'<li>'+esc(s)+'</li>').join("")+'</ul><p class="bcmuted">Cards marked identification pending are already tracked in inventory; do not upload them as new arrivals. Other unresolved purchases remain unchanged.</p>':""}
         <button class="pbtn" id="bcAnother">Check in another batch</button>`;
       document.getElementById("bcAnother").onclick=renderUpload;
       b.disabled=false;b.textContent="Done";b.onclick=closeBatch;

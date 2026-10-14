@@ -1,6 +1,6 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert/strict'),{stripTypeScriptTypes}=require('node:module');
 let src=stripTypeScriptTypes(fs.readFileSync('supabase/functions/batch-checkin/reconcile.ts','utf8')).replace(/export /g,'');
-const box={};vm.createContext(box);vm.runInContext(src+';globalThis.reconcile=reconcile;',box);
+const box={};vm.createContext(box);vm.runInContext(src+';globalThis.reconcile=reconcile;globalThis.physicalInventory=physicalInventory;',box);
 const row=(id,extra={})=>({id,item_title:'Lugia V 138/195 English',card_number:'138/195',quantity:1,txn_date:'2026-07-01',...extra});
 const card={name:'Lugia V',number:'138/195',language:'English',count:2,confident:true};
 const run=(buys,inventory=[card],packages=[],barcodes=[])=>box.reconcile(buys,{inventory,packages},barcodes);
@@ -16,8 +16,18 @@ p=run([row(1,{seller:'DifferentName',ship_from_location:'Austin, TX 78701'}),row
 assert.equal(p.items[0].id,1);assert.equal(p.items[0].source,'sender');
 p=run([row(1,{ship_from_location:'Austin TX 78701'})],[],[{sender_city:'Austin',sender_postal:'78701'}]);assert.equal(p.items.length,1);
 p=run([row(1,{ship_from_location:'Austin TX 78701'}),row(2,{ship_from_location:'Austin TX 78701'})],[],[{sender_city:'Austin',sender_postal:'78701'}]);assert.equal(p.items.length,0);assert.ok(p.issues.length);
-p=run([row(1)], [{...card,confident:false}]);assert.equal(p.items.length,0);assert.ok(p.issues.length);
+p=run([row(1)], [{...card,confident:false}]);assert.equal(p.items.length,2);assert.equal(p.physical_count,2);assert.equal(p.items[0].number,null);assert.ok(p.items[0].needs_identification);
 p=run([row(1,{quantity:3})]);assert.equal(p.items.length,0);assert.equal(p.recon[0].unresolved,2);
 p=run([row(1,{item_title:'Lugia V 138 Japanese'})]);assert.equal(p.recon[0].matched,0);
 for(const m of fs.readFileSync('index.html','utf8').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g))if(m[1].trim())new vm.Script(m[1]);
 console.log('Reconciliation scenarios and inline JS parse passed');
+
+// Regression: the reported eight-card batch used to save four and silently lose four.
+const faces=Array.from({length:8},(_,i)=>({card_index:i+1,name:i<4?'Known card '+i:'Readable name '+i,number:i<4?'00'+i:null,name_confident:true,number_confident:i<4,confident:i<4,count:1}));
+const extracted=box.physicalInventory([{card_count:8,reads:[{inventory:faces}]}],{inventory:[{name:'Wrong overview guess',count:4}],uncertain:[]});
+p=run([],extracted.inventory);assert.equal(p.physical_count,8);assert.equal(p.items.length,8);assert.equal(p.items.filter(r=>r.needs_identification).length,4);
+const missing=box.physicalInventory([{card_count:8,reads:[{inventory:faces.slice(0,7)}]}],{inventory:[],uncertain:[]});p=run([],missing.inventory);assert.equal(p.items.length,8);assert.match(p.items[7].title,/Unidentified/);
+assert.throws(()=>box.physicalInventory([{card_count:8},{card_count:7}],{inventory:[{count:4}]}),/below the visible/);
+p=run([row(1,{item_title:'Mega Darkrai ex 116/84',card_number:'116'})],[{name:'Mega Darkrai ex',number:'116/084',language:'English',count:1,confident:true}]);assert.equal(p.items[0].id,1);
+p=run([row(1,{item_title:'Rayquaza VMAX 138/195',card_number:'138'})],[{...card,name:'Rayquaza V',count:1}]);assert.equal(p.recon[0].matched,0);
+console.log('Eight physical cards remain eight records even when four numbers or one entire identity are unreadable');
