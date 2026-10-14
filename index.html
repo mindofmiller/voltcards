@@ -339,6 +339,7 @@ body{overflow-x:hidden}
     <button class="navbtn" data-view="buy">🛒 Buy</button>
     <button class="navbtn" data-view="purchased">📦 Purchased</button>
     <button class="navbtn" id="scanBtn">📥 Receive</button>
+    <button class="navbtn" id="batchBtn">📸 Batch</button>
     <button class="navbtn" data-view="grading">🎓 Send to Grading</button>
     <button class="navbtn" data-view="accounting">🧮 Accounting</button>
     <button class="navbtn" data-view="alerts">🔔 Alerts</button>
@@ -486,6 +487,40 @@ body{overflow-x:hidden}
 <div id="scanModal">
   <header><h2>📦 Receive a package</h2><button class="close" id="scanClose">×</button></header>
   <div id="scanBody"></div>
+</div>
+<style>
+#bcModal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(640px,96vw);height:min(88vh,860px);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px rgba(20,26,40,.3);z-index:120;display:none;flex-direction:column;overflow:hidden}
+#bcModal.on{display:flex}
+#bcModal header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+#bcModal header h2{margin:0;font-size:15px}
+#bcModal .close{border:none;background:var(--chip);border-radius:8px;width:28px;height:28px;cursor:pointer;font-size:16px}
+#bcBody{padding:14px 16px;overflow:auto;flex:1}
+#bcFoot{border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center}
+.bcprimary{flex:1;padding:11px 14px;border:none;border-radius:9px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;cursor:pointer}
+.bcprimary:disabled{opacity:.5;cursor:default}
+.bcdrop{border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;cursor:pointer;background:#fafafa}
+.bcrow{display:flex;gap:9px;align-items:flex-start;padding:7px 2px;border-bottom:1px solid var(--line);font-size:13px}
+.bcrow input{margin-top:3px}
+.bcsrc{font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.bctable{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+.bctable td,.bctable th{border:1px solid var(--line);padding:4px 7px;text-align:left}
+.bcchat{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:12px;background:#fafafa}
+.bcmsg{margin:6px 0;font-size:13px;line-height:1.45}
+.bcmsg.u{text-align:right}
+.bcmsg .b{display:inline-block;padding:7px 11px;border-radius:12px;max-width:85%}
+.bcmsg.a .b{background:#fff;border:1px solid var(--line)}
+.bcmsg.u .b{background:var(--accent);color:#fff}
+.bcchatin{display:flex;gap:7px;margin-top:8px}
+.bcchatin input{flex:1;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+.bcchatin button{padding:9px 13px;border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:8px;cursor:pointer;font-weight:600}
+.bcsec{font-weight:700;font-size:13px;margin:14px 0 4px}
+.bcmuted{color:var(--muted);font-size:12px}
+</style>
+<div id="bcov" class="fov" style="display:none"></div>
+<div id="bcModal">
+  <header><h2>📸 Batch check-in</h2><button class="close" id="bcClose">×</button></header>
+  <div id="bcBody"></div>
+  <div id="bcFoot"><button class="bcprimary" id="bcConfirm" disabled>Upload photos to start</button></div>
 </div>
 
 <script id="static2025">window.STATIC_2025=[];</script>
@@ -4805,5 +4840,131 @@ async function boot(){
 
 boot();
 </script>
+
+<script>
+(function(){
+  const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  let ZX=null;
+  async function loadZX(){ if(ZX) return ZX;
+    const urls=["https://esm.sh/zxing-wasm@2/reader","https://cdn.jsdelivr.net/npm/zxing-wasm@2/+esm"];
+    for(const u of urls){ try{ ZX=await import(u); if(ZX&&ZX.readBarcodes) return ZX; }catch(e){} }
+    ZX=null; return ZX;
+  }
+  function trkFromText(t){ const m=String(t).match(/\(420\)\d+\((9\d)\)(\d{20})/); if(m) return m[1]+m[2]; const d=(String(t).replace(/\s/g,"").match(/\b9\d{21}\b/)||[])[0]; return d||null; }
+  async function decodeFile(file){
+    const z=await loadZX(); if(!z) return [];
+    try{ const res=await z.readBarcodes(file,{tryHarder:true,maxNumberOfSymbols:80,formats:["DataMatrix","Code128","QRCode","ITF","Code39"]});
+      return res.map(r=>trkFromText(r.text)).filter(Boolean);
+    }catch(e){ return []; }
+  }
+  function fileToImg(file){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); }); }
+  async function downscale(file,max=1568,q=0.72){
+    try{ const img=await fileToImg(file); const sc=Math.min(1,max/Math.max(img.width,img.height));
+      const c=document.createElement("canvas"); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height); return c.toDataURL("image/jpeg",q);
+    }catch(e){ return null; }
+  }
+
+  let BC={staged:[],unmatched:[],recon:[],messages:[],busy:false};
+  const bodyEl=()=>document.getElementById("bcBody");
+  const footEl=()=>document.getElementById("bcConfirm");
+
+  function openBatch(){
+    if(typeof sb==='undefined'||!sb||!SESSION){ alert("Sign in first so check-ins log to your account."); return; }
+    BC={staged:[],unmatched:[],recon:[],messages:[],busy:false};
+    document.getElementById("bcov").style.display="block";
+    document.getElementById("bcModal").classList.add("on");
+    renderUpload();
+  }
+  function closeBatch(){ document.getElementById("bcov").style.display="none"; document.getElementById("bcModal").classList.remove("on"); }
+
+  function renderUpload(){
+    bodyEl().innerHTML=`
+      <div class="bcmuted" style="margin-bottom:8px">Drop photos of the arrived mail (envelopes, mailers, boxes) and any photos of the loose cards. I'll read the shipping labels, match them to your orders, and stage check-ins for Steve to confirm.</div>
+      <label class="bcdrop" id="bcDrop">
+        <div style="font-size:30px">📸</div>
+        <div style="font-weight:700;margin-top:4px">Tap to add photos</div>
+        <div class="bcmuted">or drop them here</div>
+        <input id="bcFiles" type="file" accept="image/*" multiple style="display:none">
+      </label>
+      <div id="bcStatus" class="bcmuted" style="margin-top:10px"></div>`;
+    const inp=document.getElementById("bcFiles"), drop=document.getElementById("bcDrop");
+    drop.onclick=()=>inp.click();
+    drop.ondragover=e=>{e.preventDefault();}; drop.ondrop=e=>{e.preventDefault(); if(e.dataTransfer.files.length) doProcess(e.dataTransfer.files);};
+    inp.onchange=()=>{ if(inp.files.length) doProcess(inp.files); };
+    footEl().disabled=true; footEl().textContent="Upload photos to start";
+  }
+
+  async function doProcess(fileList){
+    const files=[...fileList]; if(!files.length) return;
+    const st=document.getElementById("bcStatus");
+    const set=t=>{ if(st) st.textContent=t; };
+    set("Reading "+files.length+" photo(s) — decoding barcodes…");
+    const barcodes=new Set(); const images=[];
+    for(let i=0;i<files.length;i++){
+      set(`Decoding barcodes ${i+1}/${files.length}…`);
+      (await decodeFile(files[i])).forEach(t=>barcodes.add(t));
+      const d=await downscale(files[i]); if(d) images.push(d);
+    }
+    set(`Found ${barcodes.size} tracking barcode(s). Reading envelopes + cards with Claude…`);
+    try{
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"process",barcodes:[...barcodes],images}});
+      if(error){ let msg=error.message; try{ const j=await error.context.json(); if(j&&j.error) msg=j.error; }catch(_){} throw new Error(msg||"request failed"); }
+      if(data.error) throw new Error(data.error);
+      BC.staged=data.staged||[]; BC.unmatched=data.unmatched||[]; BC.recon=data.recon||[];
+      BC.messages=[{role:"assistant",content:data.assistantMessage||"Done."}];
+      renderReview();
+    }catch(e){ set("⚠ "+e.message); }
+  }
+
+  function renderReview(){
+    const rows=BC.staged.map(s=>`<label class="bcrow"><input type="checkbox" data-id="${s.id}" checked><div style="flex:1">${esc(s.card_number?("#"+s.card_number+" "):"")}${esc(s.title||("row "+s.id))}</div><span class="bcsrc">${esc(s.source||"")}</span></label>`).join("")||`<div class="bcmuted">Nothing matched yet.</div>`;
+    let recon=""; if(BC.recon&&BC.recon.length){ recon=`<div class="bcsec">Loose-card reconciliation</div><table class="bctable"><tr><th>Card</th><th>In photos</th><th>Already today</th><th>Adding</th></tr>`+BC.recon.map(r=>`<tr><td>${esc(r.card)}</td><td>${r.present}</td><td>${r.received_today+(r.staging_now||0)}</td><td>${r.will_add}</td></tr>`).join("")+`</table>`; }
+    let unm=""; if(BC.unmatched&&BC.unmatched.length){ unm=`<div class="bcsec">No match — eBay never synced tracking (${BC.unmatched.length})</div><div class="bcmuted" style="word-break:break-all">${BC.unmatched.map(esc).join(", ")}</div><div class="bcmuted" style="margin-top:3px">Tell me what these are in the chat (e.g. "the Mega Gardevoir is one of these") and I'll match them by card.</div>`; }
+    const chat=`<div class="bcchat"><div id="bcMsgs">${BC.messages.map(m=>`<div class="bcmsg ${m.role==='user'?'u':'a'}"><span class="b">${esc(m.content)}</span></div>`).join("")}</div><div class="bcchatin"><input id="bcInput" placeholder="Ask or correct — e.g. 'Clefairy is 7 not 6'"><button id="bcSend">Send</button></div></div>`;
+    bodyEl().innerHTML=`<div class="bcsec">Will check in for Steve (${BC.staged.length})</div><div id="bcList">${rows}</div>${recon}${unm}${chat}`;
+    const send=()=>{ const v=(document.getElementById("bcInput").value||"").trim(); if(v) sendChat(v); };
+    document.getElementById("bcSend").onclick=send;
+    document.getElementById("bcInput").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
+    updateConfirm();
+    bodyEl().querySelectorAll('#bcList input[type=checkbox]').forEach(c=>c.onchange=updateConfirm);
+  }
+  function checkedIds(){ return [...bodyEl().querySelectorAll('#bcList input[type=checkbox]:checked')].map(c=>Number(c.dataset.id)); }
+  function updateConfirm(){ const n=checkedIds().length; const b=footEl(); b.disabled=n===0||BC.busy; b.textContent=n?`✓ Confirm ${n} check-in${n>1?"s":""}`:"Select cards to check in"; }
+
+  async function sendChat(text){
+    BC.messages.push({role:"user",content:text});
+    const msgs=document.getElementById("bcMsgs"); if(msgs) msgs.insertAdjacentHTML("beforeend",`<div class="bcmsg u"><span class="b">${esc(text)}</span></div><div class="bcmsg a" id="bcPending"><span class="b">…</span></div>`);
+    document.getElementById("bcInput").value="";
+    try{
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"chat",messages:BC.messages,context:{staged:BC.staged,unmatched:BC.unmatched,recon:BC.recon}}});
+      if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
+      BC.staged=data.staged||BC.staged; BC.messages.push({role:"assistant",content:data.assistantMessage||"Done."});
+      renderReview();
+    }catch(e){ const p=document.getElementById("bcPending"); if(p) p.querySelector(".b").textContent="⚠ "+e.message; }
+  }
+
+  async function doCommit(){
+    const ids=checkedIds(); if(!ids.length) return;
+    BC.busy=true; const b=footEl(); b.disabled=true; b.textContent="Checking in…";
+    try{
+      const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"commit",ids}});
+      if(error) throw new Error(error.message); if(data.error) throw new Error(data.error);
+      bodyEl().innerHTML=`<div style="text-align:center;padding:30px 10px"><div style="font-size:38px">✅</div><h3 style="margin:8px 0 2px">Checked in ${data.committed} card(s) for Steve</h3><p class="bcmuted">They're marked received. Refresh Purchased to see them.</p></div>`;
+      b.textContent="Done"; b.disabled=false; b.onclick=()=>{ closeBatch(); try{ if(typeof openPurchases==="function") openPurchases(); }catch(e){} };
+    }catch(e){ b.textContent="✓ Confirm"; b.disabled=false; BC.busy=false; alert("Check-in failed: "+e.message); }
+  }
+
+  function wire(){
+    const b=document.getElementById("batchBtn"); if(b) b.onclick=openBatch;
+    const c=document.getElementById("bcClose"); if(c) c.onclick=closeBatch;
+    const o=document.getElementById("bcov"); if(o) o.onclick=closeBatch;
+    const f=document.getElementById("bcConfirm"); if(f) f.onclick=doCommit;
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",wire); else wire();
+  window.openBatch=openBatch;
+})();
+</script>
+
 </body>
 </html>
