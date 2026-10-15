@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{stripTypeScriptTypes}=require('node:module');
+const src=fs.readFileSync('supabase/functions/batch-checkin/index.ts','utf8');
+const code=src.slice(src.indexOf('function normalizeLayout'),src.indexOf('function imgBlocks'));
+const ctx={};vm.createContext(ctx);vm.runInContext(stripTypeScriptTypes(code)+';this.normalize=normalizeLayout',ctx);
+const box={x:100,y:100,width:250,height:300,rotation:90};
+assert.equal(ctx.normalize({cards:[]}).cards.length,0);
+assert.equal(ctx.normalize({cards:[box]}).cards.length,1);
+const clamped=ctx.normalize({cards:[{...box,x:'755',width:'250',y:-2}]}).cards[0];
+assert.equal(clamped.x+clamped.width,1000);assert.equal(clamped.y,0);
+assert.equal(ctx.normalize({cards:[box,{...box,x:900}]}),null,'never silently drop an invalid card');
+for(const bad of [null,{}, {cards:[{...box,width:null}]},{cards:[{...box,rotation:45}]},{cards:[{...box,x:-40}]}]) assert.equal(ctx.normalize(bad),null);
+console.log('Layout validation: numeric formatting, edge rounding, empty package photos, and invalid-card rejection passed');
