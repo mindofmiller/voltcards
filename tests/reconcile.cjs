@@ -33,3 +33,8 @@ p=run([row(1,{item_title:'Rayquaza VMAX 138/195',card_number:'138'})],[{...card,
 console.log('Eight physical cards remain eight records even when four numbers or one entire identity are unreadable');
 
 p=run([row(1,{tracking_number:'ABC'}),row(2,{item_title:'Lugia V 186/195',card_number:'186',tracking_number:'DEF'})],[{name:'Lugia V',number:null,name_confident:true,number_confident:false,count:1}],[],['ABC','DEF']);assert.equal(p.items[0].source,'inventory');assert.equal(p.items[0].number,null);assert.ok(p.items[0].needs_identification);
+const multiExtract={inventory:[{name:'Palkia',number:'60',count:1},{name:'Lugia V 220',number:'220',count:1}],uncertain:[]};
+const photos=[{card_count:1,reads:[{inventory:[{card_index:1,name:'Paldean Wooper',number:'180/091',count:1,confident:true}]}]},{card_count:1,reads:[{inventory:[{card_index:1,name:'Lugia V',number:'138/195',count:1,confident:true}]}]}];
+box.physicalInventory(photos,multiExtract);
+assert.equal(multiExtract.inventory[0].name,'Paldean Wooper');assert.equal(multiExtract.inventory[1].number,'138/195');
+console.log('Multiple distinct card photos preserve verified crop identities over incorrect overview guesses');

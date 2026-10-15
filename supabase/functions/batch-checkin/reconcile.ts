@@ -20,12 +20,15 @@ export function cardMatches(row: any, card: any) {
 export function physicalInventory(photoReads: any[], extracted: any) {
   const cardPhotos=(photoReads||[]).filter((p: any)=>p.card_count>0);
   if(cardPhotos.some((p: any)=>!Number.isInteger(p.card_count)||p.card_count>64)) throw new Error('Invalid physical card count.');
-  if(cardPhotos.length===1){
-    const p=cardPhotos[0];
-    extracted.inventory=Array.from({length:p.card_count},(_,i)=>{
+  const visibleTotal=cardPhotos.reduce((n: number,p: any)=>n+p.card_count,0);
+  const mergedTotal=(extracted.inventory||[]).reduce((n: number,r: any)=>n+(Number(r.count)||0),0);
+  // When the overview confirms distinct photos (no overlapping copies), preserve
+  // independently verified crop identities across ALL photos, not just one.
+  if(cardPhotos.length===1 || (cardPhotos.length>1 && mergedTotal===visibleTotal)){
+    extracted.inventory=cardPhotos.flatMap((p: any)=>Array.from({length:p.card_count},(_,i)=>{
       const row=p.reads.flatMap((r: any)=>r.inventory||[]).find((r: any)=>r.card_index===i+1)||{};
       return {...row,count:1};
-    });
+    }));
     // Detailed per-card reads are authoritative over guesses in the overview merge.
     extracted.uncertain=(extracted.uncertain||[]).filter((s: string)=>!/card|mew|rayquaza|darkrai|ditto|magneton/i.test(s));
   } else if(cardPhotos.length && extracted.inventory.reduce((n: number,r: any)=>n+(Number(r.count)||0),0)<Math.max(...cardPhotos.map((p: any)=>p.card_count))) {
