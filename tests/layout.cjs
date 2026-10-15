@@ -10,3 +10,12 @@ assert.equal(clamped.x+clamped.width,1000);assert.equal(clamped.y,0);
 assert.equal(ctx.normalize({cards:[box,{...box,x:900}]}),null,'never silently drop an invalid card');
 for(const bad of [null,{}, {cards:[{...box,width:null}]},{cards:[{...box,rotation:45}]},{cards:[{...box,x:-40}]}]) assert.equal(ctx.normalize(bad),null);
 console.log('Layout validation: numeric formatting, edge rounding, empty package photos, and invalid-card rejection passed');
+
+const sizeCode=src.slice(src.indexOf('function jpegSize'),src.indexOf('// Normalize harmless'));
+ctx.atob=atob;ctx.Uint8Array=Uint8Array;vm.runInContext(stripTypeScriptTypes(sizeCode)+';this.jpegSize=jpegSize',ctx);
+const jpeg='data:image/jpeg;base64,'+Buffer.from([255,216,255,192,0,17,8,5,0,3,192,3,1,17,0,2,17,0,3,17,0,255,217]).toString('base64');
+const size=ctx.jpegSize(jpeg);assert.equal(size.width,960);assert.equal(size.height,1280);
+const pixel={x:465,y:910,width:370,height:280};
+const normalized=ctx.normalize({cards:[{x:pixel.x*1000/size.width,y:pixel.y*1000/size.height,width:pixel.width*1000/size.width,height:pixel.height*1000/size.height}]}).cards[0];
+assert.ok(normalized.y+normalized.height<1000,'portrait bottom-row pixel box stays inside normalized image');
+console.log('Portrait JPEG dimensions and bottom-row pixel-coordinate regression passed');
