@@ -4969,6 +4969,8 @@ boot();
       if(error){let msg=error.message;try{const j=await error.context.json();msg=j.error||msg;}catch(_){}throw new Error(msg);}
       if(!data||data.error) throw new Error(data?.error||"No receipt returned. Retry the same photos safely.");
       BC.busy=false;
+      BC.recon=data.recon||[]; BC.unmatched=data.issues||[]; BC.staged=[];
+      BC.messages=[{role:"assistant",content:"Anything look off, or did I miss a card? Ask me \u2014 or tell me to check in cards that weren't matched (e.g. \"check in 2 more Clefairy 094\")."}];
       const rows=(data.recon||[]).map(r=>`<tr><td>${esc(r.card)} ${esc(r.number)}</td><td>${r.present}</td><td>${r.matched}</td><td>${r.inventory_added}</td><td>${r.already_received}</td></tr>`).join("");
       bodyEl().innerHTML=`<h3>${data.dry_run?"Backtest complete":data.replayed?"Previously checked in":"Checked in"}: ${Number(data.dry_run?data.physical_count:data.committed)||0} card(s)</h3>
         ${data.dry_run?"<p>No changes saved. Recognition is fresh; purchase matches reflect current inventory.</p>":""}
@@ -4976,8 +4978,14 @@ boot();
         ${data.replayed?'<p class="bcmuted">These photos were already processed. No duplicate check-ins were made.</p>':""}
         ${rows?'<table class="bctable"><tr><th>Card</th><th>In photos</th><th>Matched</th><th>Added</th><th>Already received</th></tr>'+rows+'</table>':""}
         ${(data.issues||[]).length?'<h4>Needs attention</h4><ul>'+data.issues.map(s=>'<li>'+esc(s)+'</li>').join("")+'</ul><p class="bcmuted">Cards marked identification pending are already tracked in inventory; do not upload them as new arrivals. Other unresolved purchases remain unchanged.</p>':""}
+        <div class="bcsec">Questions &amp; corrections</div>
+        <div class="bcchat"><div id="bcMsgs"></div><div class="bcchatin"><input id="bcInput" placeholder="Ask, or 'check in 2 more Lugia V 138'"><button id="bcSend">Send</button></div><div id="bcStage"></div></div>
         <button class="pbtn" id="bcAnother">Check in another batch</button>`;
       document.getElementById("bcAnother").onclick=renderUpload;
+      renderChatMsgs();
+      const _send=()=>{ const v=(document.getElementById("bcInput").value||"").trim(); if(v) sendChat(v); };
+      document.getElementById("bcSend").onclick=_send;
+      document.getElementById("bcInput").addEventListener("keydown",e=>{ if(e.key==="Enter") _send(); });
       b.disabled=false;b.textContent="Done";b.onclick=closeBatch;
     }catch(e){
       BC.busy=false;set("⚠ "+e.message+" You can retry the same photos safely.");
@@ -4986,6 +4994,20 @@ boot();
       b.disabled=false;b.textContent="Close";
     }
   }
+  function renderChatMsgs(){ const m=document.getElementById("bcMsgs"); if(!m) return; m.innerHTML=(BC.messages||[]).map(x=>`<div class="bcmsg ${x.role==='user'?'u':'a'}"><span class="b">${esc(x.content)}</span></div>`).join(""); m.scrollTop=m.scrollHeight; }
+  function renderStage(){ const el=document.getElementById("bcStage"); if(!el) return; if(!(BC.staged||[]).length){ el.innerHTML=""; return; } el.innerHTML=`<div class="bcsec">Ready to check in (${BC.staged.length})</div>`+BC.staged.map(x=>`<div class="bcmuted">${esc(x.card_number?("#"+x.card_number+" "):"")}${esc(x.title||("row "+x.id))}</div>`).join("")+`<button class="bcprimary" id="bcApply" style="margin-top:8px">\u2713 Check in these ${BC.staged.length}</button>`; document.getElementById("bcApply").onclick=applyStaged; }
+  async function sendChat(text){ BC.messages.push({role:"user",content:text}); const inp=document.getElementById("bcInput"); if(inp) inp.value=""; BC.messages.push({role:"assistant",content:"\u2026"}); renderChatMsgs(); BC.messages.pop();
+    try{ const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"chat",worker:BC.worker,messages:BC.messages,context:{staged:BC.staged||[],unmatched:BC.unmatched||[],recon:BC.recon||[]}}});
+      if(error){ let m=error.message; try{ m=(await error.context.json()).error||m; }catch(_){ } throw new Error(m); }
+      if(data.error) throw new Error(data.error);
+      BC.staged=data.staged||BC.staged; BC.messages.push({role:"assistant",content:data.assistantMessage||"Done."}); renderChatMsgs(); renderStage();
+    }catch(e){ BC.messages.push({role:"assistant",content:"\u26a0 "+e.message}); renderChatMsgs(); } }
+  async function applyStaged(){ if(!(BC.staged||[]).length) return; const ids=BC.staged.map(x=>x.id); const btn=document.getElementById("bcApply"); if(btn){ btn.disabled=true; btn.textContent="Checking in\u2026"; }
+    try{ const {data,error}=await sb.functions.invoke("batch-checkin",{body:{action:"commit",worker:BC.worker,ids}});
+      if(error){ let m=error.message; try{ m=(await error.context.json()).error||m; }catch(_){ } throw new Error(m); }
+      if(data.error) throw new Error(data.error);
+      BC.staged=[]; BC.messages.push({role:"assistant",content:`\u2705 Checked in ${Number(data.matched||data.committed||ids.length)} more card(s) for ${workerLabel()}.`}); renderChatMsgs(); renderStage();
+    }catch(e){ if(btn){ btn.disabled=false; btn.textContent="\u2713 Try again"; } BC.messages.push({role:"assistant",content:"\u26a0 "+e.message}); renderChatMsgs(); } }
   function wire(){
     const b=document.getElementById("batchBtn");if(b)b.onclick=openBatch;
     document.getElementById("bcClose").onclick=closeBatch;
