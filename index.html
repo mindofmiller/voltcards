@@ -2135,11 +2135,57 @@ function scanNoMatch(raw, err){
     </div>
     <div class="scanmanual"><input id="scanNoIn" inputmode="numeric" maxlength="10" placeholder="last 6 digits"><button id="scanNoGo">Find</button></div>
     <p class="err" id="scanErr" style="display:none;margin-top:8px"></p>
+    <button class="scanagain" id="scanBrowseBtn" style="border-color:var(--accent);color:var(--accent);margin-bottom:8px;font-weight:600">📋 Can't scan it? Find it by card or name</button>
     <button class="scanagain" id="scanAgain">↻ Try again</button>`;
   const go=()=>{ const v=(document.getElementById("scanNoIn").value||"").replace(/\D/g,""); if(v.length>=4) lookupScan(v); else scanError("Enter at least the last 4 digits."); };
+  document.getElementById("scanBrowseBtn").onclick=scanBrowseAll;
   document.getElementById("scanNoGo").onclick=go;
   document.getElementById("scanNoIn").addEventListener("keydown",e=>{ if(e.key==="Enter") go(); });
   document.getElementById("scanAgain").onclick=()=>{ scanEntryView(); };
+}
+// Scan-fail fallback: browse EVERY unreceived package (incl. ones hidden from the address queue
+// because they carry a stored tracking that doesn't match the physical label, or are unmatched).
+let SCANALL=[];
+async function scanBrowseAll(){
+  scanBodyEl().innerHTML='<p class="note" style="text-align:center;padding:20px 0;display:flex;align-items:center;justify-content:center;gap:8px">'+dfSpin(28)+'Loading all packages…</p>';
+  try{
+    let all=[], fr=0;
+    for(;;){ const {data,error}=await sb.from("card_transactions")
+        .select("id,item_title,card_number,tracking_number,ship_to_name,ship_to_postal,image_url,txn_date,received_at,flagged_defective,quantity")
+        .eq("type","buy").eq("canceled",false).is("received_at",null).range(fr,fr+999);
+      if(error){ scanBodyEl().innerHTML='<p class="err">'+escH(error.message)+'</p>'; return; }
+      const c=data||[]; all=all.concat(c); if(c.length<1000) break; fr+=1000; if(fr>60000) break; }
+    SCANALL=all.filter(o=>!o.flagged_defective && !o.received_at);
+  }catch(e){ scanBodyEl().innerHTML='<p class="err">'+escH(e&&e.message||"load failed")+'</p>'; return; }
+  renderScanBrowse("");
+}
+function renderScanBrowse(q){
+  const term=(q||"").toLowerCase().trim();
+  const match=SCANALL.filter(o=>!term || (String(o.item_title||"")+" "+String(o.card_number||"")+" "+String(o.ship_to_name||"")).toLowerCase().includes(term));
+  const list=match.slice(0,80);
+  const rows=list.map(o=>`<div class="ntrow" data-id="${o.id}" style="display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px">
+      ${o.image_url?`<img src="${escH(o.image_url)}" style="width:40px;height:56px;object-fit:cover;border-radius:6px">`:`<div style="width:40px;height:56px;border-radius:6px;background:#eef1f8"></div>`}
+      <span style="flex:1;min-width:0"><b style="font-size:13px">${escH(o.item_title||"Item")}</b><br><span class="muted" style="font-size:11px">${escH(destName(o)||o.ship_to_name||"")}${o.txn_date?" · "+escH(String(o.txn_date)):""}</span></span>
+      <button class="accept scanallrecv" data-id="${o.id}" style="flex:0 0 auto;padding:7px 10px;font-size:12px">✓ Receive</button></div>`).join("")
+    || '<p class="note" style="text-align:center;padding:16px">No packages match.</p>';
+  scanBodyEl().innerHTML=`<div style="font-size:14px;font-weight:700;margin-bottom:4px">📋 Find a package</div>
+    <p class="note" style="margin:0 2px 8px">Every package not yet received (${SCANALL.length}). Search by card or person, then tap Receive on the one you're holding.${match.length>list.length?` Showing first ${list.length}.`:""}</p>
+    <div class="scanmanual" style="margin-bottom:8px"><input id="scanAllQ" placeholder="search card name or person" value="${escH(q||"")}"></div>
+    <div style="max-height:50vh;overflow:auto">${rows}</div>
+    <button class="scanagain" id="scanAllBack" style="margin-top:8px">↻ Back to scan</button>`;
+  const inp=document.getElementById("scanAllQ"); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} inp.addEventListener("input",()=>renderScanBrowse(inp.value)); }
+  document.getElementById("scanAllBack").onclick=scanEntryView;
+  scanBodyEl().querySelectorAll(".scanallrecv").forEach(b=>b.onclick=()=>scanAllReceive(b.dataset.id));
+}
+async function scanAllReceive(id){
+  let cnt=0;
+  try{ const {data,error}=await sb.rpc("mark_received",{_id:Number(id),_flag:false});
+    if(error){ saveFailed(error.message); return; } cnt=Number(data)||0;
+  }catch(e){ saveFailed(e&&e.message||"try again"); return; }
+  if(cnt<1){ saveFailed("this item didn't check in (no match, or wrong login). Nothing changed."); return; }
+  SCANALL=SCANALL.filter(o=>String(o.id)!==String(id));
+  const row=scanBodyEl().querySelector('.ntrow[data-id="'+CSS.escape(String(id))+'"]');
+  if(row){ row.style.opacity=".45"; const btn=row.querySelector(".scanallrecv"); if(btn) btn.outerHTML='<span class="scanbadge rcv" style="flex:0 0 auto">✓ Received</span>'; }
 }
 function renderScanChooser(byTrk){
   const rows=Object.keys(byTrk).map(tn=>{ const r=byTrk[tn][0]; const l6=(tn||"").replace(/\D/g,"").slice(-6);
