@@ -103,7 +103,7 @@ Deno.serve(async req=>{
       const rows=checked(await svc.from('shipping_orders').select('*').eq('user_id',OWNER).order('created_at',{ascending:false}).limit(1000));
       const labels=checked(await svc.from('shipping_labels').select('order_id,emailed_at').limit(1000));
       const last=checked(await svc.from('shipping_runs').select('*').order('started_at',{ascending:false}).limit(1));
-      return json({ok:true,rows:rows.map((r:any)=>({...r,label:labels.find((l:any)=>l.order_id===r.id) || null})),last_run:last[0] || null,label_mode:'ebay_pdf_upload'});
+      return json({ok:true,rows:rows.map((r:any)=>({...r,label:labels.find((l:any)=>l.order_id===r.id) || null})),last_run:last[0] || null,label_mode:'ebay_pdf_upload',email_sender_configured:!!env('RESEND_FROM')});
     }
     const id=String(body.id || '');if(!id || id.length>100) return json({error:'Order required'},400);
     if(action==='shipped') return json(await markShipped(id));

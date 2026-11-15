@@ -2761,7 +2761,7 @@ function showBuySub(s){
 function closeListing(){ document.getElementById("lov").classList.remove("on"); document.getElementById("lside").classList.remove("on"); }
 
 // ---- Outgoing sales: server-authorized eBay sync, label delivery and handoff ----
-let SHIPPING={rows:[],filter:'ready',q:'',busy:false,last:null};
+let SHIPPING={rows:[],filter:'ready',q:'',busy:false,last:null,emailReady:false};
 async function shippingCall(action,extra={}){
   const {data,error}=await sb.functions.invoke('shipping',{body:{action,...extra}});
   if(error){let message=error.message;try{const d=await error.context.json();message=d.error||message;}catch(_){}throw new Error(message);}
@@ -2780,7 +2780,7 @@ async function openShipping(){
   const el=document.getElementById('shippingView');
   if(!sb||!SESSION){el.innerHTML='<p class="note">Sign in to manage shipping.</p>';return;}
   el.innerHTML='<div class="card"><h2>Shipping</h2><p class="note">Loading outgoing eBay orders…</p></div>';
-  try{const d=await shippingCall('list');SHIPPING.rows=d.rows;SHIPPING.last=d.last_run;renderShipping();}
+  try{const d=await shippingCall('list');SHIPPING.rows=d.rows;SHIPPING.last=d.last_run;SHIPPING.emailReady=d.email_sender_configured;renderShipping();}
   catch(e){el.innerHTML='<div class="card"><h2>Shipping</h2><p class="err">'+escH(e.message)+'</p><button class="pbtn" id="shipRetry">Retry</button></div>';el.querySelector('#shipRetry').onclick=openShipping;}
 }
 function renderShipping(){
@@ -2791,7 +2791,7 @@ function renderShipping(){
   el.innerHTML=`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin:0">Shipping</h2><p class="note">voltcardsus · From Riss Dr. · Daily check at 8 a.m. Central</p></div><button class="pbtn" id="shipSync" ${state.busy?'disabled':''}>${state.busy?'Syncing…':'↻ Sync eBay & tracking'}</button></div>
   <div class="pchint" style="margin:8px 0 14px">PSA slabs: use a 7 × 5 × 2-inch corrugated box with cushioning and USPS Ground Advantage, unless the order requires another service. <a href="https://www.amazon.com/dp/B0BG45GXPH" target="_blank" rel="noopener">Recommended boxes ↗</a>. Weigh the fully packed parcel before buying postage in eBay. Automatic eBay label purchasing is not connected. You can upload an eBay label PDF below; Volt emails it to mallardpointdev@gmail.com and copies voltcardsus@gmail.com. Click <b>Shipped</b> after mailing to update eBay with tracking.</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="subtab ${state.filter==='ready'?'on':''}" data-shipfilter="ready">Ready to ship (${state.rows.filter(ready).length})</button><button class="subtab ${state.filter==='shipped'?'on':''}" data-shipfilter="shipped">Shipped</button><button class="subtab ${state.filter==='all'?'on':''}" data-shipfilter="all">All orders</button><input id="shipSearch" aria-label="Search shipping orders" placeholder="Search card, order or tracking" value="${escH(state.q)}" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
-  <p id="shipMsg" role="status" class="note"></p>
+  ${!state.emailReady?'<p class="err">Label email setup needs a verified sender address before delivery can begin.</p>':''}<p id="shipMsg" role="status" class="note"></p>
   ${state.last?`<p class="note">Last daily check: ${escH(date(state.last.started_at))}${state.last.result?.error?' · Failed: '+escH(state.last.result.error):state.last.finished_at?' · Complete':' · Running'}</p>`:''}
   <div style="overflow:auto"><table class="ptbl" style="width:100%;table-layout:auto"><thead><tr><th style="text-align:left">Card / order</th><th style="text-align:left">Destination</th><th>Status</th><th style="text-align:left">Tracking</th><th>Label</th><th></th></tr></thead><tbody>${rows.map(r=>{
     const status=shippingStatus(r),dest=r.destination||{},active=r.paid_at&&!r.canceled&&!r.handed_off_at;
