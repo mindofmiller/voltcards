@@ -2850,12 +2850,13 @@ async function openAccounting(){
   // Paginate: PostgREST caps a response at 1000 rows, and with 1000+ purchases the newest check-ins (today) would be cut off.
   ACCT_RECV=[];
   try{ let _from=0;
-    for(;;){ const {data,error}=await sb.from("acct_received")
-        .select("received_at,ship_to_name,name,item_title,card_number,set_name,delivered_at,delivery_est_date,delivery_status,shipped_at,txn_date")
+    for(;;){ const {data,error}=await sb.from("card_transactions")
+        .select("id,received_at,ship_to_name,item_title,card_number,set_name,delivered_at,delivery_est_date,delivery_status,shipped_at,txn_date,quantity")
+        .eq("type","buy").or("canceled.is.null,canceled.eq.false").order("id")
         .range(_from,_from+999);
-      if(error) break; const chunk=data||[]; ACCT_RECV=ACCT_RECV.concat(chunk);
+      if(error) throw error; const chunk=data||[]; ACCT_RECV=ACCT_RECV.concat(chunk.flatMap(r=>Array(Math.max(1,Math.round(+r.quantity||1))).fill(r)));
       if(chunk.length<1000) break; _from+=1000; if(_from>50000) break; }
-  }catch(e){ ACCT_RECV=[]; }
+  }catch(e){ ACCT_RECV=[]; document.getElementById("acctBody").innerHTML='<p class="note">Unable to load receiving accounting: '+escH(e.message)+'. Please reload to retry.</p>'; return; }
   setAcctSub(ACCTSUB);
 }
 function setAcctSub(w){
