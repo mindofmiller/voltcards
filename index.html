@@ -2327,7 +2327,7 @@ async function saveItemId(id,val){
     renderPurchases(PURCH_ROWS);
   }catch(e){ console.warn("item save failed",e); }
 }
-function acctBadge(a){ if(!a) return '<span class="muted">—</span>'; const map={monopolyguy1:['#1c5a99','#e7edff'], voltcardsus:['#256d25','#eef8ee']}; const c=map[a]||['#5b6472','#eef0f6']; return `<span style="font-size:11px;font-weight:700;color:${c[0]};background:${c[1]};padding:1px 7px;border-radius:999px;white-space:nowrap">${escH(a)}</span>`; }
+function acctBadge(a){ if(!a) return '<span class="muted">—</span>'; const map={monopolyguy1:['#1c5a99','#e7edff'], voltcardsus:['#256d25','#eef8ee']}; const c=map[a]||['#5b6472','#eef0f6']; return `<span style="font-size:11px;font-weight:700;color:${c[0]};background:${c[1]};padding:1px 7px;border-radius:999px;white-space:nowrap">${escH(a==="voltcardsus"?"voltlabsllc":a)}</span>`; }
 function acctBadges(arr){ arr=(arr||[]).filter(Boolean); return arr.length?arr.map(acctBadge).join(" "):'<span class="muted">—</span>'; }
 const PCOLDEF=[
   {key:"card",   label:"Card",         g:g=>`${escH(g.rep.name||g.rep.item_title||"")} <span class="muted">${escH(g.rep.parallel||"")}</span>`, i:it=>`<span class="muted">↳ bought ${it.txn_date||"—"}</span>`},
@@ -2453,7 +2453,7 @@ const DAILY_COLDEF=[
   {key:"date",  label:"Date",         d:(o,day)=>escH(day), t:()=>"TOTAL"},
   {key:"total", label:"Total spent",  d:o=>money2(o.item+o.ship+o.tax), t:o=>money2(o.item+o.ship+o.tax)},
   {key:"mono",  label:"monopolyguy1", d:o=>money2(o.mono), t:o=>money2(o.mono)},
-  {key:"volt",  label:"voltcardsus",  d:o=>money2(o.volt), t:o=>money2(o.volt)},
+  {key:"volt",  label:"voltlabsllc",  d:o=>money2(o.volt), t:o=>money2(o.volt)},
   {key:"items", label:"Items",        d:o=>money2(o.item), t:o=>money2(o.item)},
   {key:"ship",  label:"Shipping",     d:o=>money2(o.ship), t:o=>money2(o.ship)},
   {key:"tax",   label:"Tax",          d:o=>money2(o.tax), t:o=>money2(o.tax)},
@@ -2473,7 +2473,7 @@ function dailySpendTable(){
     const line=(+b.price||0)*q + (+b.shipping_cost||0) + (+b.tax||0);
     const o=by[d]||(by[d]={item:0,ship:0,tax:0,cards:0,mono:0,volt:0});
     o.item+=(+b.price||0)*q; o.ship+=(+b.shipping_cost||0); o.tax+=(+b.tax||0); o.cards+=q;
-    if((b.ebay_account||"monopolyguy1")==="voltcardsus") o.volt+=line; else o.mono+=line;
+    if((b.ebay_account||"monopolyguy1")==="voltcardsus" || b.ebay_account==="voltlabsllc") o.volt+=line; else o.mono+=line;
     (DAILY_BY_DAY[d]||(DAILY_BY_DAY[d]=[])).push(b); });
   const dates=Object.keys(by).sort((a,b)=>String(b).localeCompare(String(a)));   // newest first
   if(!dates.length) return "";
@@ -2839,10 +2839,12 @@ async function openAccounting(){
   view.innerHTML=`<div class="topnav" style="margin-bottom:14px">
       <button class="navbtn on" id="acctConnor">👤 Connor <span class="muted" style="font-weight:500">· Chestnut</span></button>
       <button class="navbtn" id="acctSteve">👤 Steve <span class="muted" style="font-weight:500">· Riss</span></button>
+      <button class="navbtn" id="acctSales">🛒 eBay sales</button>
       <button class="navbtn" id="acctDeposits">💰 Accounts</button>
     </div><div id="acctBody"><p class="note" style="display:flex;align-items:center;gap:8px">${dfSpin(28)}Loading…</p></div>`;
   document.getElementById("acctConnor").onclick=()=>setAcctSub("connor");
   document.getElementById("acctSteve").onclick=()=>setAcctSub("steve");
+  document.getElementById("acctSales").onclick=()=>setAcctSub("sales");
   document.getElementById("acctDeposits").onclick=()=>setAcctSub("deposits");
   // acct_received counts EVERY received item by ship-to (matched or not) so worker credit reflects every physical check-in.
   // Paginate: PostgREST caps a response at 1000 rows, and with 1000+ purchases the newest check-ins (today) would be cut off.
@@ -2857,11 +2859,31 @@ async function openAccounting(){
   setAcctSub(ACCTSUB);
 }
 function setAcctSub(w){
-  if(!WORKERS[w] && w!=="deposits") w="connor";
+  if(!WORKERS[w] && w!=="deposits" && w!=="sales") w="connor";
   ACCTSUB=w; try{localStorage.setItem("voltdash.acctsub",w);}catch(e){}
   const cb=document.getElementById("acctConnor"), sn=document.getElementById("acctSteve"), dp=document.getElementById("acctDeposits");
   if(cb) cb.classList.toggle("on", w==="connor"); if(sn) sn.classList.toggle("on", w==="steve"); if(dp) dp.classList.toggle("on", w==="deposits");
-  if(w==="deposits") renderDeposits(); else renderAccounting(w);
+  document.getElementById("acctSales")?.classList.toggle("on",w==="sales");
+  if(w==="sales") renderSalesAccounting(); else if(w==="deposits") renderDeposits(); else renderAccounting(w);
+}
+async function renderSalesAccounting(){
+  const body=document.getElementById("acctBody");
+  body.innerHTML='<p class="note">Loading eBay sales…</p>';
+  try {
+    let orders=[];
+    for(let off=0;;off+=1000){
+      const {data,error}=await sb.from('shipping_orders').select('id,account,created_at,paid_at,canceled,items,total,currency,ebay_shipped_at').order('created_at',{ascending:false}).range(off,off+999);
+      if(error) throw error;
+      orders=orders.concat(data||[]); if((data||[]).length<1000) break;
+    }
+    const paid=orders.filter(o=>o.paid_at&&!o.canceled);
+    const totals={}; paid.forEach(o=>{if(o.total!=null) totals[o.currency]=(totals[o.currency]||0)+Number(o.total);});
+    const fmt=o=>o.total==null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:o.currency||'USD'}).format(o.total);
+    body.innerHTML=`<h3>eBay sales · voltlabsllc</h3><p class="note">Synced seller orders from the past 89 days. Paid order totals include amounts collected on the order; they are not net payouts or profit. eBay fees, refunds, postage and card costs must be reconciled separately. Active auctions appear after they end and create an order.</p>
+    <button id="acctSalesSync">↻ Sync eBay sales</button><p>${paid.length} paid, uncanceled orders · ${Object.entries(totals).map(([currency,total])=>fmt({currency,total})).join(' · ')||'No paid sales yet'}</p>
+    <div style="overflow:auto"><table><thead><tr><th>Date</th><th>Card / order</th><th>Status</th><th>Order total</th></tr></thead><tbody>${orders.map(o=>`<tr><td>${escH(centralDay(o.created_at))}</td><td>${(o.items||[]).map(i=>escH(i.title)+' × '+Number(i.quantity||1)).join('<br>')}<div class="muted">${escH(o.id)}</div></td><td>${o.canceled?'Canceled':!o.paid_at?'Awaiting payment':o.ebay_shipped_at?'Shipped':'Ready to ship'}</td><td>${fmt(o)}</td></tr>`).join('')||'<tr><td colspan="4">No completed seller orders found. Active auctions are still in eBay Seller Hub.</td></tr>'}</tbody></table></div>`;
+    document.getElementById('acctSalesSync').onclick=async()=>{const b=document.getElementById('acctSalesSync');b.disabled=true;b.textContent='Syncing…';try{await shippingCall('sync');await renderSalesAccounting();}catch(e){b.disabled=false;b.textContent='↻ Sync eBay sales';alert(e.message);}};
+  }catch(e){body.innerHTML='<p class="note">Unable to load sales: '+escH(e.message)+'</p>';}
 }
 const ACCOUNTS=["Volt Bank Account","3733 Credit Cards","Brett's BofA","0285 United Card","Brett/Andrew Charles Schwab"];
 const ACCT_EXT="External / Owner";
