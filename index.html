@@ -2892,10 +2892,15 @@ const PAID_BY=["Brett","Andrew","N/A"];
 async function renderDeposits(){
   const body=document.getElementById("acctBody"); if(!body) return;
   body.innerHTML=`<p class="note" style="display:flex;align-items:center;gap:8px">${dfSpin(28)}Loading…</p>`;
-  let led=[]; try{ const {data}=await sb.from("account_ledger").select("*").order("entry_date",{ascending:false}).order("created_at",{ascending:false}); led=data||[]; }catch(e){}
+  let led=[];
+  try {
+    const [ledger,payments]=await Promise.all([sb.from('account_ledger').select('*'),sb.from('worker_payoffs').select('*')]);
+    if(ledger.error||payments.error) throw ledger.error||payments.error;
+    led=[...(ledger.data||[]),...(payments.data||[]).map(p=>({...p,id:'worker:'+p.id,entry_date:p.paid_at,to_account:p.worker==='steve'?'Steve':'Connor'}))].sort((a,b)=>String(b.entry_date).localeCompare(String(a.entry_date))||String(b.created_at).localeCompare(String(a.created_at)));
+  }catch(e){body.innerHTML='<p class="err">Unable to load accounts: '+escH(e.message)+'</p>';return;}
   const bal=a=>led.reduce((s,e)=>s+((e.to_account===a?1:0)-(e.from_account===a?1:0))*(+e.amount||0),0);
   const paidBy=k=>led.filter(e=>e.paid_by===k).reduce((s,e)=>s+(+e.amount||0),0);
-  const optList=[ACCT_EXT,...ACCOUNTS];
+  const optList=[ACCT_EXT,...ACCOUNTS,"Unspecified source"];
   const opts=(sel)=>optList.map(a=>`<option value="${escH(a)}" ${sel===a?"selected":""}>${escH(a)}</option>`).join("");
   const today=new Date().toISOString().slice(0,10);
   const cards=ACCOUNTS.map(a=>{ const b=bal(a); return `<div style="flex:1;min-width:150px;border:1px solid var(--line);border-radius:12px;padding:12px"><div class="muted" style="font-size:12px">${escH(a)}</div><div style="font-size:20px;font-weight:800;color:${b<0?'#c0392b':'#256d25'}">${money2(b)}</div><div class="muted" style="font-size:11px">net logged</div></div>`; }).join("");
@@ -2908,7 +2913,7 @@ async function renderDeposits(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <label style="font-size:12px">Date<br><input id="ldDate" type="date" value="${today}" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px"></label>
         <label style="font-size:12px">From<br><select id="ldFrom" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px">${opts(ACCT_EXT)}</select></label>
-        <label style="font-size:12px">To<br><select id="ldTo" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px">${opts(ACCOUNTS[0])}</select></label>
+        <label style="font-size:12px">To<br><select id="ldTo" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px">${opts(ACCOUNTS[0])}<option>Steve</option><option>Connor</option></select></label>
         <label style="font-size:12px">Amount ($)<br><input id="ldAmt" type="number" step="any" min="0" placeholder="0.00" style="width:110px;padding:7px 8px;border:1px solid var(--line);border-radius:8px"></label>
         <label style="font-size:12px">Paid by<br><select id="ldPaidBy" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px">${PAID_BY.map(p=>`<option value="${escH(p)}">${escH(p)}</option>`).join("")}</select></label>
         <label style="font-size:12px;flex:1;min-width:140px">Note (optional)<br><input id="ldNote" placeholder="e.g. deposit, card payoff, transfer" style="width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box"></label>
@@ -2924,6 +2929,7 @@ async function renderDeposits(){
   body.querySelectorAll('.depEdit').forEach(b=>b.onclick=()=>{
     const row=led.find(e=>String(e.id)===b.dataset.id); if(!row) return;
     editingId=row.id;
+    if(row.to_account==='Steve'||row.to_account==='Connor') body.querySelector('#ldTo').value=row.to_account;
     for(const [id,value] of Object.entries({ldDate:String(row.entry_date).slice(0,10),ldFrom:row.from_account,ldTo:row.to_account,ldAmt:row.amount,ldPaidBy:row.paid_by||'N/A',ldNote:row.note||''})) body.querySelector('#'+id).value=value;
     body.querySelector('#ldTitle').textContent='Edit money movement';
     body.querySelector('#ldAdd').textContent='Save changes';
@@ -2942,13 +2948,21 @@ async function renderDeposits(){
     const button=body.querySelector('#ldAdd');button.disabled=true;lerr('');
     try {
       const payload={entry_date:date,from_account:from,to_account:to,amount:amt,note,paid_by};
-      const query=editingId==null ? sb.from('account_ledger').insert({...payload,user_id:SESSION.user.id}) : sb.from('account_ledger').update(payload).eq('id',editingId).eq('user_id',SESSION.user.id);
+      const isWorker=to==='Steve'||to==='Connor', existingWorker=String(editingId||'').startsWith('worker:');
+      if(editingId!=null && isWorker!==existingWorker) throw new Error('Keep this entry in its original category; worker payments must be received by Steve or Connor.');
+      if(isWorker && (from==='Steve'||from==='Connor')) throw new Error('Choose a source account.');
+      const table=isWorker?'worker_payoffs':'account_ledger';
+      const savedPayload=isWorker?{worker:to.toLowerCase(),paid_at:date,from_account:from,amount:amt,note,paid_by}:payload;
+      const query=editingId==null ? sb.from(table).insert({...savedPayload,user_id:SESSION.user.id}) : sb.from(table).update(savedPayload).eq('id',existingWorker?String(editingId).slice(7):editingId).eq('user_id',SESSION.user.id);
       const {data,error}=await query.select('id').single();
       if(error || !data) throw error || new Error('Entry could not be saved.');
       await renderDeposits();
     }catch(e){lerr(e.message);button.disabled=false;}
   };
-  body.querySelectorAll(".depDel").forEach(b=>b.onclick=async()=>{ if(!confirm("Remove this entry?")) return; try{ await sb.from("account_ledger").delete().eq("id",b.dataset.id); }catch(e){} renderDeposits(); });
+  body.querySelectorAll(".depDel").forEach(b=>b.onclick=async()=>{ if(!confirm("Remove this entry? Worker payments will also be removed from the worker's payment history.")) return;
+    const worker=b.dataset.id.startsWith('worker:');
+    const {error}=await sb.from(worker?'worker_payoffs':'account_ledger').delete().eq('id',worker?b.dataset.id.slice(7):b.dataset.id);
+    if(error){lerr(error.message);return;}renderDeposits(); });
 }
 // ---- Send to Grading: recommend received cards worth grading (flat $20 PSA fee + $3 handling — no tiers) ----
 const GRADE_FEE=costFor(0), GRADE_MIN=100;   // $23 flat total grading cost
@@ -3111,6 +3125,7 @@ async function renderAccounting(w){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input id="payAmt" type="number" step="0.01" min="0" placeholder="Amount" value="${owed>0?owed.toFixed(2):''}" style="width:110px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
         <input id="payDate" type="date" value="${new Date().toISOString().slice(0,10)}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+        <select id="payFrom" aria-label="Payment source account"><option value="">Choose source account</option>${[ACCT_EXT,...ACCOUNTS].map(a=>`<option>${escH(a)}</option>`).join("")}</select><select id="payPaidBy" aria-label="Payment paid by">${PAID_BY.map(p=>`<option>${escH(p)}</option>`).join("")}</select>
         <input id="payNote" placeholder="Note (optional)" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
         <button class="pbtn" id="payBtn" style="margin-left:0">Record</button>
       </div>
@@ -3150,8 +3165,10 @@ async function renderAccounting(w){
     if(!(amt>0)){ alert("Enter a payoff amount."); return; }
     const paid_at=document.getElementById("payDate").value||new Date().toISOString().slice(0,10);
     const note=document.getElementById("payNote").value||null;
+    const from_account=document.getElementById("payFrom").value, paid_by=document.getElementById("payPaidBy").value;
+    if(!from_account){alert("Choose the account used for this payment.");return;}
     pb.disabled=true;
-    const {error}=await sb.from("worker_payoffs").insert({user_id:SESSION.user.id,worker:w,amount:amt,paid_at,note});
+    const {error}=await sb.from("worker_payoffs").insert({user_id:SESSION.user.id,worker:w,amount:amt,paid_at,note,from_account,paid_by});
     if(error){ alert(error.message); pb.disabled=false; return; }
     renderAccounting(w);
   };
