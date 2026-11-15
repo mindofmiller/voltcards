@@ -340,7 +340,6 @@ body{overflow-x:hidden}
     <button class="navbtn" data-view="purchased">📦 Purchased</button>
     <button class="navbtn" data-view="shipping">🚚 Shipping</button>
     <button class="navbtn" id="scanBtn">📥 Receive</button>
-    <button class="navbtn" id="batchBtn">📸 Upload photos</button>
     <button class="navbtn" data-view="grading">🎓 Send to Grading</button>
     <button class="navbtn" data-view="accounting">🧮 Accounting</button>
     <button class="navbtn" data-view="alerts">🔔 Alerts</button>
@@ -488,6 +487,7 @@ body{overflow-x:hidden}
 <div id="scanov"></div>
 <div id="scanModal">
   <header><h2>📦 Receive a package</h2><button class="close" id="scanClose">×</button></header>
+  <div style="padding:12px 16px 0"><button id="batchBtn" type="button" style="border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;cursor:pointer;font:inherit">📸 Upload photos</button></div>
   <div id="scanBody"></div>
 </div>
 <style>
@@ -5183,7 +5183,7 @@ boot();
       BC.staged=[]; BC.messages.push({role:"assistant",content:`\u2705 Checked in ${Number(data.matched||data.committed||ids.length)} more card(s) for ${workerLabel()}.`}); renderChatMsgs(); renderStage();
     }catch(e){ if(btn){ btn.disabled=false; btn.textContent="\u2713 Try again"; } BC.messages.push({role:"assistant",content:"\u26a0 "+e.message}); renderChatMsgs(); } }
   function wire(){
-    const b=document.getElementById("batchBtn");if(b)b.onclick=openBatch;
+    const b=document.getElementById("batchBtn");if(b)b.onclick=()=>{closeScan();openBatch();};
     document.getElementById("bcClose").onclick=closeBatch;
     document.getElementById("bcov").onclick=closeBatch;
   }
