@@ -242,9 +242,10 @@ async function sync(days: number, imgLimit: number, trackingOnly = false) {
   // it exists so a FULL 90-day window can run daily without hitting WORKER_RESOURCE_LIMIT,
   // catching tracking numbers sellers add late (slow USPS / international) that fall outside
   // the hourly 14-day full sync.
-  const cardList = trackingOnly ? [] : await loadCardDim(svc);
+  const hasNew = lines.some(ln=>!seenItem.has(String(ln.itemId)) && !(ln.orderId && seenOrder.has(String(ln.orderId))));
+  const cardList = trackingOnly || !hasNew ? [] : await loadCardDim(svc);
 
-  let inserted = 0, skipped = 0, unmatched = 0;
+  let inserted = 0, skipped = 0, unmatched = 0, deferred = 0;
   const rows: any[] = [];
   const trackBumps: any[] = [];
   const trackUpdates: any[] = [];
@@ -264,6 +265,8 @@ async function sync(days: number, imgLimit: number, trackingOnly = false) {
       continue;
     }
     if (trackingOnly) continue;
+    // Bound CPU-heavy matching per run; later runs pick up remaining purchases.
+    if(rows.length>=50){deferred++;continue;}
     const mm = matchCard(ln.title, cardList);
     const c = mm.card;
     if (c) {
@@ -338,7 +341,7 @@ async function sync(days: number, imgLimit: number, trackingOnly = false) {
     try { imagesFilled = await enrichImages(svc, tk, tradingTok, imgLimit); } catch { /* skip */ }
   }
 
-  return { ok: true, window_days: days, tracking_only: trackingOnly, tz: TZ, accounts: ACCOUNTS.map((a) => a.name), account_lines: acctCounts, account_errors: acctErrors, order_lines: lines.length, existing_loaded: ex.length, card_dim_loaded: cardList.length, inserted, skipped, unmatched, tracking_backfilled: trackingUpdated, enriched, addr_filled: addrFilled, date_fixed: dateFixed, name_backfilled: nameBackfilled, images_filled: imagesFilled };
+  return { ok: true, window_days: days, tracking_only: trackingOnly, tz: TZ, accounts: ACCOUNTS.map((a) => a.name), account_lines: acctCounts, account_errors: acctErrors, order_lines: lines.length, existing_loaded: ex.length, card_dim_loaded: cardList.length, inserted, skipped, unmatched, deferred, tracking_backfilled: trackingUpdated, enriched, addr_filled: addrFilled, date_fixed: dateFixed, name_backfilled: nameBackfilled, images_filled: imagesFilled };
 }
 
 Deno.serve(async (req) => {

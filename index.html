@@ -4902,7 +4902,10 @@ async function boot(){
     document.getElementById("refreshPurchasesBtn").onclick=async(e)=>{
       const b=e.currentTarget; if(!sb||!SESSION){ openPurchases(); return; }
       b.disabled=true; const t=b.textContent; b.textContent="⏳ Checking eBay…";
-      try{ await sb.functions.invoke("refresh-orders",{body:{days:7}}); }catch(err){ /* re-query anyway */ }
+      try{ const {data,error}=await sb.functions.invoke("refresh-orders",{body:{days:7}});
+        if(error || !data?.ok) throw new Error(data?.sync?.error || error?.message || "Purchase sync failed");
+        if(data.sync?.account_errors?.length) alert("Some eBay accounts could not refresh: "+data.sync.account_errors.map(a=>a.account+": "+a.error).join("; "));
+      }catch(err){ alert("eBay refresh failed: "+err.message); }
       await openPurchases();
       b.disabled=false; b.textContent=t;
     };
