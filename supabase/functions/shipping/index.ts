@@ -18,16 +18,22 @@ async function trading(call: string, content: string) {
 async function sync() {
   const seller=await trading('GetUser','<DetailLevel>ReturnAll</DetailLevel>');
   if(pick(seller,'UserID').toLowerCase()!=='voltlabsllc') throw new Error('Connected eBay account is not voltlabsllc');
-  const from=new Date(Date.now()-89*864e5).toISOString();
-  const to=new Date().toISOString();let count=0;
-  for(let page=1;page<=100;page++){
-    const xml=await trading('GetOrders',`<OrderRole>Seller</OrderRole><OrderStatus>All</OrderStatus><ModTimeFrom>${from}</ModTimeFrom><ModTimeTo>${to}</ModTimeTo><DetailLevel>ReturnAll</DetailLevel><Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>`);
-    const rows=parseSellerOrders(xml,OWNER);
-    if(rows.length) checked(await svc.from('shipping_orders').upsert(rows,{onConflict:'id'}));
-    count+=rows.length;
-    if(pick(xml,'HasMoreOrders')!=='true') return count;
+  const end=Date.now();let count=0;
+  const seen=new Set<string>();
+  // GetOrders limits each modification-time window to 30 days.
+  for(let days=0;days<89;days+=29){
+    const from=new Date(end-Math.min(days+29,89)*864e5).toISOString();
+    const to=new Date(end-days*864e5).toISOString();
+    for(let page=1;page<=100;page++){
+      const xml=await trading('GetOrders',`<OrderRole>Seller</OrderRole><OrderStatus>All</OrderStatus><ModTimeFrom>${from}</ModTimeFrom><ModTimeTo>${to}</ModTimeTo><DetailLevel>ReturnAll</DetailLevel><Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>`);
+      const rows=parseSellerOrders(xml,OWNER);
+      if(rows.length) checked(await svc.from('shipping_orders').upsert(rows,{onConflict:'id'}));
+      for(const row of rows) if(!seen.has(row.id)){seen.add(row.id);count++;}
+      if(pick(xml,'HasMoreOrders')!=='true') break;
+      if(page===100) throw new Error('eBay pagination limit reached; sync incomplete');
+    }
   }
-  throw new Error('eBay pagination limit reached; sync incomplete');
+  return count;
 }
 async function order(id: string) {
   const row=checked(await svc.from('shipping_orders').select('*').eq('id',id).eq('user_id',OWNER).single());
