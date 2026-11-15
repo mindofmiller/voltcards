@@ -338,6 +338,7 @@ body{overflow-x:hidden}
     <button class="navbtn on" data-view="discover">🔍 Discover</button>
     <button class="navbtn" data-view="buy">🛒 Buy</button>
     <button class="navbtn" data-view="purchased">📦 Purchased</button>
+    <button class="navbtn" data-view="shipping">🚚 Shipping</button>
     <button class="navbtn" id="scanBtn">📥 Receive</button>
     <button class="navbtn" id="batchBtn">📸 Upload photos</button>
     <button class="navbtn" data-view="grading">🎓 Send to Grading</button>
@@ -462,6 +463,7 @@ body{overflow-x:hidden}
   </div>
 
   <div id="gradingView" style="display:none"></div>
+  <div id="shippingView" style="display:none"></div>
   <div id="accountingView" style="display:none"></div>
   <div id="alertsView" style="display:none"></div>
   <div id="radarView" style="display:none"></div>
@@ -2732,7 +2734,7 @@ const isBlockedSeller=u=>BLOCKED.has(String(u||"").trim().toLowerCase());
 function closeLetsBuy(){}   // Let's Buy is now an inline Buy sub-tab (no modal)
 let BUYSUB=(()=>{ try{ const v=localStorage.getItem("voltdash.sub"); return v==="dealfeed"?"dealfeed":"letsbuy"; }catch(e){ return "letsbuy"; } })();
 function showView(v){
-  const views={discover:"discoverView", buy:"buyView", purchased:"purchasedView", accounting:"accountingView", grading:"gradingView", alerts:"alertsView", radar:"radarView", audit:"auditView"};
+  const views={discover:"discoverView", buy:"buyView", purchased:"purchasedView", shipping:"shippingView", accounting:"accountingView", grading:"gradingView", alerts:"alertsView", radar:"radarView", audit:"auditView"};
   if(!views[v]) v="discover";
   for(const k in views){ const el=document.getElementById(views[k]); if(el) el.style.display=(k===v)?"":"none"; }
   document.querySelectorAll("#topnav .navbtn").forEach(b=>b.classList.toggle("on", b.dataset.view===v));
@@ -2741,6 +2743,7 @@ function showView(v){
   else if(v==="purchased") openPurchases();
   else if(v==="accounting") openAccounting();
   else if(v==="grading") openGrading();
+  else if(v==="shipping") openShipping();
   else if(v==="alerts") openAlerts();
   else if(v==="radar") openRadar();
   else if(v==="audit") openAudit();
@@ -2756,6 +2759,72 @@ function showBuySub(s){
   if(s==="letsbuy") openLetsBuy(); else openDealFeed();
 }
 function closeListing(){ document.getElementById("lov").classList.remove("on"); document.getElementById("lside").classList.remove("on"); }
+
+// ---- Outgoing sales: server-authorized eBay sync, label delivery and handoff ----
+let SHIPPING={rows:[],filter:'ready',q:'',busy:false,last:null};
+async function shippingCall(action,extra={}){
+  const {data,error}=await sb.functions.invoke('shipping',{body:{action,...extra}});
+  if(error){let message=error.message;try{const d=await error.context.json();message=d.error||message;}catch(_){}throw new Error(message);}
+  if(data?.error) throw new Error(data.error);return data;
+}
+function shippingStatus(r){
+  if(r.canceled)return 'Canceled';
+  if(!r.paid_at)return 'Awaiting payment';
+  if(r.delivery_status==='delivered')return 'Delivered';
+  if(r.delivery_status&&r.delivery_status!=='unknown')return r.delivery_status.replace(/_/g,' ');
+  if(r.handed_off_at)return 'Shipped';
+  if(r.ebay_shipped_at)return 'Marked shipped on eBay';
+  return r.label?'Ready to ship':'Needs label';
+}
+async function openShipping(){
+  const el=document.getElementById('shippingView');
+  if(!sb||!SESSION){el.innerHTML='<p class="note">Sign in to manage shipping.</p>';return;}
+  el.innerHTML='<div class="card"><h2>Shipping</h2><p class="note">Loading outgoing eBay orders…</p></div>';
+  try{const d=await shippingCall('list');SHIPPING.rows=d.rows;SHIPPING.last=d.last_run;renderShipping();}
+  catch(e){el.innerHTML='<div class="card"><h2>Shipping</h2><p class="err">'+escH(e.message)+'</p><button class="pbtn" id="shipRetry">Retry</button></div>';el.querySelector('#shipRetry').onclick=openShipping;}
+}
+function renderShipping(){
+  const el=document.getElementById('shippingView'),state=SHIPPING;
+  const ready=r=>r.paid_at&&!r.canceled&&!r.handed_off_at&&!r.ebay_shipped_at;
+  const rows=state.rows.filter(r=>(state.filter==='all'||(state.filter==='ready'?ready(r):!r.canceled&&(r.handed_off_at||r.ebay_shipped_at)))&&(!state.q||[r.id,r.buyer,r.tracking_number,...r.items.map(i=>i.title)].join(' ').toLowerCase().includes(state.q.toLowerCase())));
+  const date=s=>s?new Date(s).toLocaleString():'';
+  el.innerHTML=`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><div><h2 style="margin:0">Shipping</h2><p class="note">voltcardsus · From Riss Dr. · Daily check at 8 a.m. Central</p></div><button class="pbtn" id="shipSync" ${state.busy?'disabled':''}>${state.busy?'Syncing…':'↻ Sync eBay & tracking'}</button></div>
+  <div class="pchint" style="margin:8px 0 14px">PSA slabs: use protective packaging and a parcel service such as USPS Ground Advantage. Automatic label purchasing awaits package setup. You can upload an eBay label PDF below; Volt emails it to mallardpointdev@gmail.com and copies voltcardsus@gmail.com. Click <b>Shipped</b> after mailing to update eBay with tracking.</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><button class="subtab ${state.filter==='ready'?'on':''}" data-shipfilter="ready">Ready to ship (${state.rows.filter(ready).length})</button><button class="subtab ${state.filter==='shipped'?'on':''}" data-shipfilter="shipped">Shipped</button><button class="subtab ${state.filter==='all'?'on':''}" data-shipfilter="all">All orders</button><input id="shipSearch" aria-label="Search shipping orders" placeholder="Search card, order or tracking" value="${escH(state.q)}" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--line);border-radius:8px"></div>
+  <p id="shipMsg" role="status" class="note"></p>
+  ${state.last?`<p class="note">Last daily check: ${escH(date(state.last.started_at))}${state.last.result?.error?' · Failed: '+escH(state.last.result.error):state.last.finished_at?' · Complete':' · Running'}</p>`:''}
+  <div style="overflow:auto"><table class="ptbl" style="width:100%;table-layout:auto"><thead><tr><th style="text-align:left">Card / order</th><th style="text-align:left">Destination</th><th>Status</th><th style="text-align:left">Tracking</th><th>Label</th><th></th></tr></thead><tbody>${rows.map(r=>{
+    const status=shippingStatus(r),dest=r.destination||{},active=r.paid_at&&!r.canceled&&!r.handed_off_at;
+    return `<tr><td style="min-width:220px;white-space:normal">${r.items.map(i=>`${escH(i.title)}${i.quantity>1?' × '+i.quantity:''}`).join('<br>')}<div class="note"><a href="https://www.ebay.com/mesh/ord/details?orderId=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escH(r.id)} ↗</a> · ${escH(r.buyer||'')}</div></td><td style="white-space:normal;min-width:145px">${[dest.name,dest.street1,dest.street2,[dest.city,dest.state,dest.postal].filter(Boolean).join(', '),dest.country].filter(Boolean).map(escH).join('<br>')}</td><td><span class="pill">${escH(status)}</span>${r.service?'<div class="note">'+escH(r.service)+'</div>':''}</td><td>${r.tracking_number?escH(r.carrier||'')+'<br>'+escH(r.tracking_number):'<span class="muted">Awaiting label</span>'}${r.delivery_checked_at?'<div class="note">Checked '+escH(date(r.delivery_checked_at))+'</div>':''}</td><td>${r.label?`<button class="pbtn" data-shipaction="label" data-id="${escH(r.id)}">PDF</button><div class="note">${r.label.emailed_at?'Emailed '+escH(date(r.label.emailed_at)):`<button class="pbtn" data-shipaction="email_label" data-id="${escH(r.id)}">Send email</button>`}</div>`:active?`<button class="pbtn" data-shipaction="upload" data-id="${escH(r.id)}">Upload eBay label</button>`:'—'}</td><td>${active?`<button class="pbtn" data-shipaction="shipped" data-id="${escH(r.id)}" ${!r.tracking_number||!r.carrier?'disabled title="Tracking is required before marking shipped"':''}>Shipped</button>`:r.handed_off_at?'✓ '+escH(date(r.handed_off_at)):'—'}</td></tr>`;
+  }).join('')||'<tr><td colspan="6" class="note">No orders match this view. Sync eBay to check for new sales.</td></tr>'}</tbody></table></div></div>`;
+  el.querySelectorAll('[data-shipfilter]').forEach(b=>b.onclick=()=>{state.filter=b.dataset.shipfilter;renderShipping();});
+  el.querySelector('#shipSearch').onchange=e=>{state.q=e.target.value;renderShipping();};
+  const msg=t=>{const p=el.querySelector('#shipMsg');if(p)p.textContent=t;};
+  el.querySelector('#shipSync').onclick=async()=>{state.busy=true;renderShipping();try{await shippingCall('sync');await openShipping();}catch(e){msg(e.message);}finally{state.busy=false;const b=el.querySelector('#shipSync');if(b){b.disabled=false;b.textContent='↻ Sync eBay & tracking';}}};
+  el.querySelectorAll('[data-shipaction]').forEach(b=>b.onclick=async()=>{
+    const action=b.dataset.shipaction,id=b.dataset.id;
+    if(action==='upload'){shippingUpload(id);return;}
+    b.disabled=true;msg('Working…');
+    try{
+      const d=await shippingCall(action,{id});
+      if(action==='label'){
+        const bytes=Uint8Array.from(atob(d.pdf_base64),c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download='Volt-'+id+'.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);msg('Label downloaded.');
+      }else await openShipping();
+    }catch(e){msg(e.message);}finally{b.disabled=false;}
+  });
+}
+function shippingUpload(id){
+  const el=document.getElementById('shippingView');
+  const box=document.createElement('div');box.className='card';box.style.marginBottom='14px';
+  box.innerHTML=`<h3>Upload purchased eBay label · ${escH(id)}</h3><p class="note">Use the label for this exact order. Saving emails the PDF to the shipping team.</p><label>Carrier <select id="shipCarrier"><option>USPS</option><option>UPS</option><option>FedEx</option><option>DHLExpress</option></select></label> <label>Tracking <input id="shipCode" autocomplete="off"></label> <label>Label PDF <input type="file" id="shipPdf" accept="application/pdf"></label><p id="shipUploadMsg" class="note" role="status"></p><button class="pbtn" id="shipUploadSave">Save & email label</button> <button class="pbtn" id="shipUploadCancel">Cancel</button>`;
+  el.prepend(box);box.scrollIntoView({behavior:'smooth',block:'start'});
+  box.querySelector('#shipUploadCancel').onclick=()=>box.remove();
+  box.querySelector('#shipUploadSave').onclick=async e=>{
+    const b=e.target,m=box.querySelector('#shipUploadMsg');b.disabled=true;
+    try{const file=box.querySelector('#shipPdf').files[0];if(!file||file.size>2*1024*1024)throw new Error('Choose a PDF label under 2 MB.');const pdf=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);});await shippingCall('upload_label',{id,pdf_base64:pdf,carrier:box.querySelector('#shipCarrier').value,tracking_number:box.querySelector('#shipCode').value});await openShipping();}
+    catch(x){m.textContent=x.message;}finally{b.disabled=false;}
+  };
+}
 
 // ---- Accounting: helpers earn $3 per item they log received at their address; track payoffs + balance over time ----
 const ACCT_RATE=3;
