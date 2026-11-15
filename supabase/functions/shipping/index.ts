@@ -17,7 +17,7 @@ async function trading(call: string, content: string) {
 }
 async function sync() {
   const seller=await trading('GetUser','<DetailLevel>ReturnAll</DetailLevel>');
-  if(pick(seller,'UserID').toLowerCase()!=='voltcardsus') throw new Error('Connected eBay account is not voltcardsus');
+  if(pick(seller,'UserID').toLowerCase()!=='voltlabsllc') throw new Error('Connected eBay account is not voltlabsllc');
   const from=new Date(Date.now()-89*864e5).toISOString();
   const to=new Date().toISOString();let count=0;
   for(let page=1;page<=100;page++){

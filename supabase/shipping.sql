@@ -2,7 +2,7 @@
 create table public.shipping_orders (
   id text primary key,
   user_id uuid not null references auth.users(id),
-  account text not null check (account = 'voltcardsus'),
+  account text not null check (account = 'voltlabsllc'),
   created_at timestamptz not null,
   paid_at timestamptz,
   canceled boolean not null default false,
